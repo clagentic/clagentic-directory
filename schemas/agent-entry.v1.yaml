@@ -1,0 +1,72 @@
+$id: https://clagentic.akuehner.com/schemas/agent-entry/v1.yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: AgentEntry
+description: Agent capability entry for the clagentic-directory registry.
+
+type: object
+additionalProperties: true  # lenient — unknown keys tolerated for forward compat
+required:
+  - schema_version
+  - identity
+  - capabilities
+properties:
+  schema_version:
+    const: 1
+  identity:
+    type: object
+    required: [name, version]
+    additionalProperties: true
+    properties:
+      name:
+        type: string
+        pattern: "^[a-z][a-z0-9-]*$"
+      version:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      description:
+        type: string
+  capabilities:
+    type: array
+    items:
+      type: object
+      additionalProperties: true
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        triggers:
+          type: object
+          additionalProperties: true
+          properties:
+            intents:
+              type: array
+              items:
+                type: string
+            conversation_kinds:
+              type: array
+              items:
+                type: string
+            after_roles:
+              type: array
+              items:
+                type: string
+            after_agents:
+              type: array
+              items:
+                type: string
+        returns:
+          type: object
+          additionalProperties: true
+          properties:
+            verdict_field:
+              type: string
+            format:
+              type: string
+  trust_labels:
+    type: array
+    items:
+      type: string

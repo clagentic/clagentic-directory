@@ -1,0 +1,26 @@
+schema_version: 1
+identity:
+  name: reviewer
+  version: 1.0.0
+  description: Performs structured code review on pull requests and commits.
+capabilities:
+  - id: review-pr
+    name: Review Pull Request
+    description: |
+      Reads a PR or commit diff and emits structured findings against a rulebook.
+      Posts at most one review comment per invocation summarizing findings.
+    triggers:
+      intents:
+        - code-review
+        - review-pr
+        - review-commit
+      conversation_kinds:
+        - review
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: review_result
+      format: structured-markdown
+trust_labels:
+  - trusted
+  - read-only

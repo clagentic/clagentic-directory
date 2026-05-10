@@ -1,0 +1,18 @@
+$id: https://clagentic.akuehner.com/schemas/vocabulary/v1.yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Vocabulary
+description: Per-deployment vocabulary extension for clagentic-directory.
+
+type: object
+additionalProperties: true
+properties:
+  intents:
+    type: object
+    description: Map of intent name to description.
+    additionalProperties:
+      type: string
+  trust_labels:
+    type: object
+    description: Map of trust label to description.
+    additionalProperties:
+      type: string

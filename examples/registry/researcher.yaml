@@ -1,0 +1,28 @@
+schema_version: 1
+identity:
+  name: researcher
+  version: 1.0.0
+  description: Read-only research agent that answers questions using external sources.
+capabilities:
+  - id: research-topic
+    name: Research Topic
+    description: |
+      Takes a research question and emits structured findings backed by an
+      enforced methodology — recursive query fan-out, layered source triage,
+      miner/skeptic/judge verification, citation discipline.
+    triggers:
+      intents:
+        - research
+        - investigate
+        - find-information
+      conversation_kinds:
+        - planning
+        - research
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: research_findings
+      format: structured-markdown
+trust_labels:
+  - trusted
+  - read-only

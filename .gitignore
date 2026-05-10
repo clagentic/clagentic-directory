@@ -1,0 +1,9 @@
+# Built binary (root-level only, not the cmd/ source directory)
+/clagentic-directory
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/

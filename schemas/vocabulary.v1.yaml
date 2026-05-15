@@ -1,7 +1,11 @@
 $id: https://clagentic.akuehner.com/schemas/vocabulary/v1.yaml
 $schema: https://json-schema.org/draft/2020-12/schema
 title: Vocabulary
-description: Per-deployment vocabulary extension for clagentic-directory.
+description: |
+  Per-deployment vocabulary for clagentic-directory.
+  This file is the canonical list used by agent-entry.v2.yaml for enum validation.
+  Vocabulary grows monotonically — add entries here before adding them to any agent YAML.
+  See docs/VOCABULARY.md for human-readable semantics for each entry.
 
 type: object
 additionalProperties: true
@@ -11,8 +15,125 @@ properties:
     description: Map of intent name to description.
     additionalProperties:
       type: string
+    # Canonical intent list (used by agent-entry.v2.yaml enum).
+    # New intents: add here first, then update the v2 schema enum, then use in agent YAMLs.
+    x-canonical-values:
+      # Code work
+      - code_work_requested
+      - code-generation
+      - implement-task
+      # Code review
+      - pr_opened
+      - code_ready_for_review
+      - code-review
+      - review-pr
+      - review-commit
+      # Merge / release
+      - merge_requested
+      - merge-pr
+      - release
+      - tag-release
+      # Diagnosis
+      - diagnostic_requested
+      - root_cause_unknown
+      - escalation_diagnosis
+      # Ops
+      - deploy_requested
+      - runbook_run
+      - ops_check
+      # Research
+      - research_requested
+      - survey_requested
+      - research
+      - investigate
+      - find-information
+      # Scaffolding
+      - scaffold_requested
+      - new_project_setup
+      # Routing / escalation
+      - escalation
+      - portfolio_question
+      - dispatch_routing
+  conversation_kinds:
+    type: object
+    description: Map of conversation kind to description.
+    additionalProperties:
+      type: string
+    x-canonical-values:
+      - build
+      - consult
+      - smoke
+      - gate
+      - research
+      - review
+      - deploy
+      - planning
+      - directive
+      - escalation
+      - coordination
   trust_labels:
     type: object
     description: Map of trust label to description.
     additionalProperties:
       type: string
+    x-canonical-values:
+      - read-only
+      - write-pr
+      - write-ops
+      - merge-gate
+      - publish
+      - observe
+      - escalation-surface
+      - dispatch-authority
+  format:
+    type: object
+    description: Map of return format hint to description.
+    additionalProperties:
+      type: string
+    x-canonical-values:
+      - json
+      - structured
+      - structured-markdown
+      - url
+      - text
+
+# Inline definitions for reference by schema tooling
+definitions:
+  intents:
+    code_work_requested: "Agent is requested to perform a code change task."
+    code-generation: "Agent is requested to generate code from a specification."
+    implement-task: "Agent is requested to implement a described task end-to-end."
+    pr_opened: "A pull request has been opened and is ready for downstream handling."
+    code_ready_for_review: "Code is ready for structured review."
+    code-review: "Agent is requested to review code changes."
+    review-pr: "Agent is requested to review a specific pull request."
+    review-commit: "Agent is requested to review a specific commit."
+    merge_requested: "A merge of an approved PR has been requested."
+    merge-pr: "Agent is requested to merge a pull request."
+    release: "A release action has been requested."
+    tag-release: "A tag-and-release action has been requested."
+    diagnostic_requested: "A diagnostic investigation has been requested."
+    root_cause_unknown: "Root cause of a failure is unknown; analysis requested."
+    escalation_diagnosis: "A diagnostic investigation escalated to this agent."
+    deploy_requested: "A deployment action has been requested."
+    runbook_run: "A runbook execution has been requested."
+    ops_check: "An operational health check has been requested."
+    research_requested: "A research task has been requested."
+    survey_requested: "A survey of a topic has been requested."
+    research: "General research capability trigger."
+    investigate: "Agent is requested to investigate a topic."
+    find-information: "Agent is requested to find specific information."
+    scaffold_requested: "A project or code scaffolding task has been requested."
+    new_project_setup: "A new project setup task has been requested."
+    escalation: "An issue has been escalated for routing or decision."
+    portfolio_question: "A question about the agent portfolio or dispatch routing."
+    dispatch_routing: "A routing or dispatch decision is needed."
+  trust_labels:
+    read-only: "Agent may read data but may not write, merge, or publish."
+    write-pr: "Agent may open pull requests and push to feature branches."
+    write-ops: "Agent may execute runbooks and ops-side write operations."
+    merge-gate: "Agent is authorized to merge pull requests."
+    publish: "Agent is authorized to publish artifacts or releases."
+    observe: "Agent observes events but takes no autonomous action."
+    escalation-surface: "Agent is the escalation surface; humans and agents route unresolved issues here."
+    dispatch-authority: "Agent has authority to dispatch and route to other agents."

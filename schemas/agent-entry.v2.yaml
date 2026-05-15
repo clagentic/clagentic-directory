@@ -1,0 +1,133 @@
+$id: https://clagentic.akuehner.com/schemas/agent-entry/v2.yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: AgentEntry
+description: |
+  Agent capability entry for the clagentic-directory registry, schema version 2.
+  v2 gates the intent vocabulary as an enum, makes returns required, and constrains
+  conversation_kinds and trust_labels to enumerated values.
+  See docs/VOCABULARY.md for canonical vocabulary with semantics.
+
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - identity
+  - capabilities
+properties:
+  schema_version:
+    const: 2
+  identity:
+    type: object
+    required: [name, version]
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        pattern: "^[a-z][a-z0-9-]*$"
+      version:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      description:
+        type: string
+  capabilities:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, returns]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        triggers:
+          type: object
+          additionalProperties: false
+          properties:
+            intents:
+              type: array
+              items:
+                type: string
+                enum:
+                  - code_work_requested
+                  - code-generation
+                  - implement-task
+                  - pr_opened
+                  - code_ready_for_review
+                  - code-review
+                  - review-pr
+                  - review-commit
+                  - merge_requested
+                  - merge-pr
+                  - release
+                  - tag-release
+                  - diagnostic_requested
+                  - root_cause_unknown
+                  - escalation_diagnosis
+                  - deploy_requested
+                  - runbook_run
+                  - ops_check
+                  - research_requested
+                  - survey_requested
+                  - research
+                  - investigate
+                  - find-information
+                  - scaffold_requested
+                  - new_project_setup
+                  - escalation
+                  - portfolio_question
+                  - dispatch_routing
+            conversation_kinds:
+              type: array
+              items:
+                type: string
+                enum:
+                  - build
+                  - consult
+                  - smoke
+                  - gate
+                  - research
+                  - review
+                  - deploy
+                  - planning
+                  - directive
+                  - escalation
+                  - coordination
+            after_roles:
+              type: array
+              items:
+                type: string
+            after_agents:
+              type: array
+              items:
+                type: string
+        returns:
+          type: object
+          additionalProperties: false
+          required: [verdict_field, format]
+          properties:
+            verdict_field:
+              type: string
+            format:
+              type: string
+              enum:
+                - json
+                - structured
+                - structured-markdown
+                - url
+                - text
+  trust_labels:
+    type: array
+    items:
+      type: string
+      enum:
+        - read-only
+        - write-pr
+        - write-ops
+        - merge-gate
+        - publish
+        - observe
+        - escalation-surface
+        - dispatch-authority

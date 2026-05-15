@@ -1,0 +1,28 @@
+schema_version: 2
+identity:
+  name: drummer
+  version: 1.0.0
+  description: >
+    Ops and runbook agent. Executes deployment runbooks, checks operational
+    health, and handles ops-side write operations. Never writes feature code.
+capabilities:
+  - id: run-ops
+    name: Run Operations
+    description: |
+      Executes a deployment or ops runbook end-to-end. Emits a structured
+      outcome report with step results and final status.
+    triggers:
+      intents:
+        - deploy_requested
+        - runbook_run
+        - ops_check
+      conversation_kinds:
+        - build
+        - directive
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: drummer_outcome
+      format: structured
+trust_labels:
+  - write-ops

@@ -7,6 +7,9 @@ type Agent struct {
 	Description  string
 	Capabilities []Capability
 	TrustLabels  []string
+	// SchemaVersion is the schema_version from the source YAML (1 or 2).
+	// Both versions expose identical fields to API callers for backward compat.
+	SchemaVersion int
 	// SourceFile is the YAML file this entry was loaded from.
 	SourceFile string
 }

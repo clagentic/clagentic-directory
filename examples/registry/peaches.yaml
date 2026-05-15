@@ -1,8 +1,11 @@
 schema_version: 2
 identity:
-  name: reviewer
+  name: peaches
   version: 1.0.0
-  description: Performs structured code review on pull requests and commits.
+  description: >
+    Read-only PR/commit reviewer. Reads one PR or commit on a clean context
+    window and emits structured findings against an enumerated rulebook.
+    Posts at most one PR comment per invocation.
 capabilities:
   - id: review-pr
     name: Review Pull Request
@@ -14,12 +17,15 @@ capabilities:
         - code-review
         - review-pr
         - review-commit
+        - pr_opened
+        - code_ready_for_review
       conversation_kinds:
+        - build
         - review
       after_roles: []
       after_agents: []
     returns:
-      verdict_field: review_result
-      format: structured-markdown
+      verdict_field: peaches_verdict
+      format: structured
 trust_labels:
   - read-only

@@ -1,0 +1,27 @@
+schema_version: 2
+identity:
+  name: amos
+  version: 1.0.0
+  description: >
+    Autonomous builder. Picks up one unit of code work at a time and runs it to
+    completion. Branch-and-PR only. Never pushes to main.
+capabilities:
+  - id: code-change
+    name: Code Change
+    description: |
+      Implements a described code task end-to-end: reads context, edits files,
+      runs tests, opens a pull request. One task per invocation.
+    triggers:
+      intents:
+        - code_work_requested
+        - code-generation
+        - implement-task
+      conversation_kinds:
+        - build
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: amos_pr_url
+      format: url
+trust_labels:
+  - write-pr

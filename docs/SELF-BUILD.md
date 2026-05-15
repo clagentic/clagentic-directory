@@ -49,11 +49,12 @@ draft `Capability` entry with per-field confidence labels.
 ### Ad-hoc invocation
 
 ```
-clagentic-directory inspect <agent-name> <mcp-server-url>
+clagentic-directory inspect --agent <agent-name> --mcp-url <mcp-server-url>
 ```
 
-This is the primary interface for MCP discovery. The `--self-build-mcp-discovery` flag
-enables the `inspect` subcommand.
+This is the primary interface for MCP discovery. See the
+[CLI usage: inspect subcommand](#cli-usage-inspect-subcommand) section below for full flag reference.
+The `inspect` subcommand runs regardless of whether `--self-build-mcp-discovery` is set.
 
 ### Example output
 
@@ -208,3 +209,30 @@ notes:
 
 The `proposed_changes/` directory is intentionally separate from the registry directory.
 It is safe to delete or archive old proposals at any time.
+
+---
+
+## CLI usage: inspect subcommand
+
+The `inspect` subcommand performs a one-shot MCP introspection without
+starting the service. Useful for operator-on-demand discovery.
+
+```
+clagentic-directory inspect \
+  --agent <name> \
+  --mcp-url <http://localhost:PORT/mcp> \
+  [--config <path>] \
+  [--output-dir <path>]
+```
+
+Flags:
+- `--agent` (required): agent name to record in the proposed entry
+- `--mcp-url` (required): MCP server endpoint to introspect
+- `--config`: path to config file (default: `~/.config/clagentic/directory.yaml`)
+- `--output-dir`: root for proposed_changes/ output (default: from config, or `./proposed_changes`)
+
+On success, prints the absolute path of the written YAML file to stdout
+and exits 0. On failure, prints to stderr and exits non-zero.
+
+The inspect subcommand operates independently of the `--self-build-mcp-discovery`
+daemon flag — it always runs regardless of service configuration.

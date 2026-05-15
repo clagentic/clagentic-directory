@@ -7,14 +7,119 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/api"
 	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/selfbuild"
 	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/store"
 )
 
+// directoryConfig is a minimal representation of the clagentic-directory config file.
+// Only fields needed by the inspect subcommand are decoded here.
+type directoryConfig struct {
+	SelfBuild struct {
+		BaseDir string `yaml:"base_dir"`
+	} `yaml:"self_build"`
+}
+
+// loadConfig reads the config file at path and returns the decoded config.
+// Missing files are not an error — the caller falls back to defaults.
+func loadConfig(path string) (directoryConfig, error) {
+	var cfg directoryConfig
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("read config %s: %w", path, err)
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// runInspect implements the 'inspect' subcommand: one-shot MCP introspection
+// that writes a proposed_changes/ file without starting the HTTP service.
+func runInspect(args []string) int {
+	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
+	agentName := fs.String("agent", "", "agent name (required)")
+	mcpURL := fs.String("mcp-url", "", "MCP server endpoint to introspect (required)")
+	configPath := fs.String("config", "", "path to clagentic-directory config (default: ~/.config/clagentic/directory.yaml)")
+	outputDir := fs.String("output-dir", "", "proposed_changes root (default: from config, or ./proposed_changes)")
+
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
+		return 1
+	}
+	if *agentName == "" {
+		fmt.Fprintln(os.Stderr, "inspect: --agent is required")
+		return 1
+	}
+	if *mcpURL == "" {
+		fmt.Fprintln(os.Stderr, "inspect: --mcp-url is required")
+		return 1
+	}
+
+	// Resolve config path.
+	cfgPath := *configPath
+	if cfgPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "inspect: cannot resolve home dir: %v\n", err)
+			return 1
+		}
+		cfgPath = filepath.Join(home, ".config", "clagentic", "directory.yaml")
+	}
+
+	// Resolve output-dir: flag > config > default.
+	baseDir := *outputDir
+	if baseDir == "" {
+		cfg, err := loadConfig(cfgPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
+			return 1
+		}
+		baseDir = cfg.SelfBuild.BaseDir
+	}
+	if baseDir == "" {
+		baseDir = "./proposed_changes"
+	}
+	// WriteProposedChange appends proposed_changes/ under baseDir; when the
+	// operator passes ./proposed_changes as --output-dir they mean the root,
+	// not a parent. Strip the trailing segment if the caller already included it
+	// so we don't double-nest.
+	if filepath.Base(baseDir) == "proposed_changes" {
+		baseDir = filepath.Dir(baseDir)
+	}
+
+	fmt.Fprintf(os.Stderr, "inspect: agent=%s mcp-url=%s output-base=%s\n", *agentName, *mcpURL, baseDir)
+
+	d := selfbuild.NewMCPDiscovery(selfbuild.MCPConfig{BaseDir: baseDir})
+	path, err := d.Inspect(context.Background(), *agentName, *mcpURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
+		return 1
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		// path is already usable; fall back to relative
+		abs = path
+	}
+	fmt.Println(abs)
+	return 0
+}
+
 func main() {
+	// Subcommand dispatch: inspect runs standalone, before service flag parsing.
+	if len(os.Args) > 1 && os.Args[1] == "inspect" {
+		os.Exit(runInspect(os.Args[2:]))
+	}
+
 	var (
 		registrySource     = flag.String("registry-source", "", "Backend type: file|git (required)")
 		registryDir        = flag.String("registry-dir", "", "Directory containing agent YAML files (when source=file)")

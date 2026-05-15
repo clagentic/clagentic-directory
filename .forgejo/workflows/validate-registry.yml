@@ -1,0 +1,27 @@
+# Registry Validation Workflow
+#
+# Runs the store unit tests on every PR and push to main.
+# The TestAllFleetEntriesValidateAsV2 test validates every YAML in examples/registry/
+# against the schema_version: 2 vocabulary enum.
+#
+# Runs on runner-go (project-scoped Go runner with GOPATH configured).
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Go unit tests (registry validation)
+    runs-on: go
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v3
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...

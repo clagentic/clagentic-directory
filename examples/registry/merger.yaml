@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 identity:
   name: merger
   version: 1.0.0
@@ -25,5 +25,4 @@ capabilities:
       verdict_field: merge_result
       format: json
 trust_labels:
-  - trusted
-  - release-authorized
+  - merge-gate

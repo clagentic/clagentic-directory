@@ -12,6 +12,76 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// v2ValidIntents is the closed set of intent strings valid in schema_version: 2 entries.
+// Any string not in this set causes a hard load failure for v2 entries.
+// Update this alongside schemas/agent-entry.v2.yaml and schemas/vocabulary.v1.yaml.
+var v2ValidIntents = map[string]bool{
+	"code_work_requested":  true,
+	"code-generation":      true,
+	"implement-task":       true,
+	"pr_opened":            true,
+	"code_ready_for_review": true,
+	"code-review":          true,
+	"review-pr":            true,
+	"review-commit":        true,
+	"merge_requested":      true,
+	"merge-pr":             true,
+	"release":              true,
+	"tag-release":          true,
+	"diagnostic_requested": true,
+	"root_cause_unknown":   true,
+	"escalation_diagnosis": true,
+	"deploy_requested":     true,
+	"runbook_run":          true,
+	"ops_check":            true,
+	"research_requested":   true,
+	"survey_requested":     true,
+	"research":             true,
+	"investigate":          true,
+	"find-information":     true,
+	"scaffold_requested":   true,
+	"new_project_setup":    true,
+	"escalation":           true,
+	"portfolio_question":   true,
+	"dispatch_routing":     true,
+}
+
+// v2ValidConversationKinds is the closed set of conversation_kinds valid in schema_version: 2.
+var v2ValidConversationKinds = map[string]bool{
+	"build":       true,
+	"consult":     true,
+	"smoke":       true,
+	"gate":        true,
+	"research":    true,
+	"review":      true,
+	"deploy":      true,
+	"planning":    true,
+	"directive":   true,
+	"escalation":  true,
+	"coordination": true,
+}
+
+// v2ValidTrustLabels is the closed set of trust_labels valid in schema_version: 2.
+var v2ValidTrustLabels = map[string]bool{
+	"read-only":          true,
+	"write-pr":           true,
+	"write-ops":          true,
+	"merge-gate":         true,
+	"publish":            true,
+	"observe":            true,
+	"escalation-surface": true,
+	"dispatch-authority": true,
+}
+
+// v2ValidFormats is the closed set of returns.format values valid in schema_version: 2.
+var v2ValidFormats = map[string]bool{
+	"json":               true,
+	"structured":         true,
+	"structured-markdown": true,
+	"url":               true,
+	"text":              true,
+}
+
 // FileStore implements Store by reading YAML agent entries from a directory.
 type FileStore struct {
 	dir     string
@@ -246,9 +316,23 @@ func parseEntry(path string, data []byte) (Agent, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return Agent{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if raw.SchemaVersion != 1 {
-		return Agent{}, fmt.Errorf("%s: unsupported schema_version %d (expected 1)", path, raw.SchemaVersion)
+
+	switch raw.SchemaVersion {
+	case 1:
+		// Transition-period: accept v1 entries with a deprecation warning.
+		// v1 entries expose the same fields as v2 to all API callers.
+		// TODO(lr-1745): remove v1 acceptance once fleet is fully migrated.
+		slog.Warn("agent entry uses schema_version 1; please migrate to v2; see lr-1745",
+			"file", path)
+	case 2:
+		// v2 entries are validated strictly against the closed vocabulary.
+		if err := validateV2(path, &raw); err != nil {
+			return Agent{}, err
+		}
+	default:
+		return Agent{}, fmt.Errorf("%s: unsupported schema_version %d (supported: 1, 2)", path, raw.SchemaVersion)
 	}
+
 	if raw.Identity.Name == "" {
 		return Agent{}, fmt.Errorf("%s: identity.name is required", path)
 	}
@@ -273,11 +357,50 @@ func parseEntry(path string, data []byte) (Agent, error) {
 	}
 
 	return Agent{
-		Name:         raw.Identity.Name,
-		Version:      raw.Identity.Version,
-		Description:  raw.Identity.Description,
-		Capabilities: caps,
-		TrustLabels:  raw.TrustLabels,
-		SourceFile:   path,
+		Name:          raw.Identity.Name,
+		Version:       raw.Identity.Version,
+		Description:   raw.Identity.Description,
+		Capabilities:  caps,
+		TrustLabels:   raw.TrustLabels,
+		SchemaVersion: raw.SchemaVersion,
+		SourceFile:    path,
 	}, nil
+}
+
+// validateV2 applies strict vocabulary validation to a schema_version: 2 entry.
+// It fails with a clear error naming the offending field and value on any violation.
+func validateV2(path string, raw *rawEntry) error {
+	for _, rc := range raw.Capabilities {
+		for _, intent := range rc.Triggers.Intents {
+			if !v2ValidIntents[intent] {
+				return fmt.Errorf("%s: capability %q: triggers.intents contains unknown value %q; see docs/VOCABULARY.md or schemas/vocabulary.v1.yaml for valid intents",
+					path, rc.ID, intent)
+			}
+		}
+		for _, kind := range rc.Triggers.ConversationKinds {
+			if !v2ValidConversationKinds[kind] {
+				return fmt.Errorf("%s: capability %q: triggers.conversation_kinds contains unknown value %q; see docs/VOCABULARY.md for valid kinds",
+					path, rc.ID, kind)
+			}
+		}
+		if rc.Returns.VerdictField == "" {
+			return fmt.Errorf("%s: capability %q: returns.verdict_field is required in schema_version: 2",
+				path, rc.ID)
+		}
+		if rc.Returns.Format == "" {
+			return fmt.Errorf("%s: capability %q: returns.format is required in schema_version: 2",
+				path, rc.ID)
+		}
+		if !v2ValidFormats[rc.Returns.Format] {
+			return fmt.Errorf("%s: capability %q: returns.format contains unknown value %q; see docs/VOCABULARY.md for valid formats",
+				path, rc.ID, rc.Returns.Format)
+		}
+	}
+	for _, label := range raw.TrustLabels {
+		if !v2ValidTrustLabels[label] {
+			return fmt.Errorf("%s: trust_labels contains unknown value %q; see docs/VOCABULARY.md for valid trust_labels",
+				path, label)
+		}
+	}
+	return nil
 }

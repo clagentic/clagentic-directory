@@ -21,7 +21,8 @@ for the agent registry. See [docs/DEPLOY.md](docs/DEPLOY.md) for setup.
 ## Documentation
 
 - [docs/DESIGN.md](docs/DESIGN.md) — architecture
-- [docs/SCHEMA.md](docs/SCHEMA.md) — agent entry schema reference
+- [docs/SCHEMA.md](docs/SCHEMA.md) — agent entry schema reference (v1 and v2)
+- [docs/VOCABULARY.md](docs/VOCABULARY.md) — canonical vocabulary for v2 entries (intents, kinds, trust_labels)
 - [docs/DEPLOY.md](docs/DEPLOY.md) — operator guide
 - [docs/A2A-COMPAT.md](docs/A2A-COMPAT.md) — A2A AgentCard compatibility
 - [docs/SECURITY.md](docs/SECURITY.md) — security and auth notes

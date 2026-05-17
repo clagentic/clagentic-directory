@@ -165,3 +165,137 @@ func TestUsageInference_NoDirectRegistryWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch verifies that
+// ResearchFirstFlag is set in the drift report when the actor is a lead/director
+// with no recorded lore search in the event window. lr-d482.
+func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := selfbuild.UsageConfig{
+		BaseDir:     baseDir,
+		Window:      time.Hour,
+		RunInterval: time.Hour,
+	}
+	// lore-lead is a lead (ActorRole="lead") with no LastLoreSearchAt — flag should fire.
+	events := []selfbuild.RelayEvent{
+		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+			ActorRole: "lead", LastLoreSearchAt: ""},
+		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+			ActorRole: "lead", LastLoreSearchAt: ""},
+	}
+	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
+
+	written, err := u.Analyze(context.Background(), events)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("expected 1 drift report, got %d", len(written))
+	}
+
+	data, err := os.ReadFile(written[0])
+	if err != nil {
+		t.Fatalf("read drift report: %v", err)
+	}
+	var pc selfbuild.ProposedChange
+	if err := yaml.Unmarshal(data, &pc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(pc.DriftReports) == 0 {
+		t.Fatal("expected at least one drift report")
+	}
+	if !pc.DriftReports[0].ResearchFirstFlag {
+		t.Error("expected ResearchFirstFlag=true for lead with no lore search")
+	}
+	// Also verify the RESEARCH-FIRST note appears in Notes.
+	hasNote := false
+	for _, note := range pc.Notes {
+		if len(note) > 10 && note[:10] == "RESEARCH-F" {
+			hasNote = true
+			break
+		}
+	}
+	if !hasNote {
+		t.Errorf("expected RESEARCH-FIRST note in drift report Notes; got: %v", pc.Notes)
+	}
+}
+
+// TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch verifies that
+// ResearchFirstFlag is NOT set when the actor has a recorded lore search. lr-d482.
+func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := selfbuild.UsageConfig{
+		BaseDir:     baseDir,
+		Window:      time.Hour,
+		RunInterval: time.Hour,
+	}
+	// lore-lead with a lore search recorded — flag should NOT fire.
+	events := []selfbuild.RelayEvent{
+		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+			ActorRole: "lead", LastLoreSearchAt: "2026-05-17T12:00:00Z"},
+	}
+	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
+
+	written, err := u.Analyze(context.Background(), events)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("expected 1 drift report (unregistered sequence), got %d", len(written))
+	}
+
+	data, err := os.ReadFile(written[0])
+	if err != nil {
+		t.Fatalf("read drift report: %v", err)
+	}
+	var pc selfbuild.ProposedChange
+	if err := yaml.Unmarshal(data, &pc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(pc.DriftReports) == 0 {
+		t.Fatal("expected at least one drift report")
+	}
+	if pc.DriftReports[0].ResearchFirstFlag {
+		t.Error("expected ResearchFirstFlag=false for lead with a recorded lore search")
+	}
+}
+
+// TestUsageInference_ResearchFirstFlag_ClearForCrew verifies that
+// ResearchFirstFlag is NOT set for crew agents (amos, naomi, etc.). lr-d482.
+func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := selfbuild.UsageConfig{
+		BaseDir:     baseDir,
+		Window:      time.Hour,
+		RunInterval: time.Hour,
+	}
+	// amos is crew — no research-first flag regardless of lore search status.
+	events := []selfbuild.RelayEvent{
+		{Actor: "amos", NextActor: "naomi", ConversationKind: "build", Timestamp: time.Now(),
+			ActorRole: "crew", LastLoreSearchAt: ""},
+	}
+	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
+
+	written, err := u.Analyze(context.Background(), events)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(written) == 0 {
+		// No drift report means no sequencing mismatch (amos->naomi might be registered
+		// in a future fixture). In any case the flag should not fire for crew.
+		return
+	}
+	data, err := os.ReadFile(written[0])
+	if err != nil {
+		t.Fatalf("read drift report: %v", err)
+	}
+	var pc selfbuild.ProposedChange
+	if err := yaml.Unmarshal(data, &pc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, dr := range pc.DriftReports {
+		if dr.Actor == "amos" && dr.ResearchFirstFlag {
+			t.Error("expected ResearchFirstFlag=false for crew agent amos")
+		}
+	}
+}

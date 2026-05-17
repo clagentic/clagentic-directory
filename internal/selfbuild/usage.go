@@ -29,6 +29,15 @@ type RelayEvent struct {
 	NextActor        string    `json:"next_actor"`
 	ConversationKind string    `json:"conversation_kind"`
 	Timestamp        time.Time `json:"timestamp"`
+	// ActorRole is the registry role of the actor ("lead", "director",
+	// "operator", "crew"). Populated when the relay event API exposes it.
+	// Empty string when the relay version predates this field. lr-d482.
+	ActorRole string `json:"actor_role,omitempty"`
+	// LastLoreSearchAt is the RFC3339 timestamp of the most recent lore
+	// search recorded in the conversation's agent_state ledger at the time
+	// this event was emitted. Nil/empty when no search was recorded.
+	// Populated when the relay event API exposes it. lr-d482.
+	LastLoreSearchAt string `json:"last_lore_search_at,omitempty"`
 }
 
 // UsageInference pulls events from the relay event store, compares empirical
@@ -90,8 +99,8 @@ func (u *UsageInference) Run(ctx context.Context) {
 
 // Analyze fetches events and writes drift reports (exposed for testing).
 func (u *UsageInference) Analyze(ctx context.Context, events []RelayEvent) ([]string, error) {
-	tuples := aggregate(events)
-	return u.emitDrift(tuples)
+	result := aggregate(events)
+	return u.emitDrift(result)
 }
 
 func (u *UsageInference) analyze(ctx context.Context) error {
@@ -137,9 +146,30 @@ type sequenceTuple struct {
 	ConversationKind string
 }
 
-// aggregate counts (actor, next_actor, conversation_kind) tuples.
-func aggregate(events []RelayEvent) map[sequenceTuple]int {
+// actorResearchInfo tracks research-first signals for an actor across events.
+type actorResearchInfo struct {
+	// role is the most recent registry role observed for this actor.
+	role string
+	// hasLoreSearch is true when at least one event in the window carried
+	// a non-empty LastLoreSearchAt for this actor.
+	hasLoreSearch bool
+}
+
+// aggregateResult is the combined output of aggregate.
+type aggregateResult struct {
+	// counts maps (actor, next_actor, conversation_kind) to observed count.
+	counts map[sequenceTuple]int
+	// researchInfo maps actor name to their research-first signals.
+	researchInfo map[string]*actorResearchInfo
+}
+
+// aggregate counts (actor, next_actor, conversation_kind) tuples and collects
+// research-first signals (actor role + whether any lore search was recorded).
+// lr-d482: research-first drift detection.
+func aggregate(events []RelayEvent) aggregateResult {
 	counts := make(map[sequenceTuple]int)
+	researchInfo := make(map[string]*actorResearchInfo)
+
 	for _, ev := range events {
 		if ev.Actor == "" || ev.NextActor == "" {
 			continue
@@ -150,20 +180,49 @@ func aggregate(events []RelayEvent) map[sequenceTuple]int {
 			ConversationKind: ev.ConversationKind,
 		}
 		counts[k]++
+
+		// Track per-actor research-first signals.
+		info, ok := researchInfo[ev.Actor]
+		if !ok {
+			info = &actorResearchInfo{}
+			researchInfo[ev.Actor] = info
+		}
+		if ev.ActorRole != "" {
+			info.role = ev.ActorRole
+		}
+		if ev.LastLoreSearchAt != "" {
+			info.hasLoreSearch = true
+		}
 	}
-	return counts
+
+	return aggregateResult{counts: counts, researchInfo: researchInfo}
 }
 
-func (u *UsageInference) emitDrift(tuples map[sequenceTuple]int) ([]string, error) {
+// isLeadOrDirector returns true when the role is "lead" or "director".
+// Used by emitDrift to decide whether the research-first flag applies. lr-d482.
+func isLeadOrDirector(role string) bool {
+	return role == "lead" || role == "director"
+}
+
+func (u *UsageInference) emitDrift(result aggregateResult) ([]string, error) {
 	// Group drift reports by actor so we write one file per actor-centric diff.
 	byActor := make(map[string][]DriftReport)
 
-	for tuple, count := range tuples {
+	for tuple, count := range result.counts {
 		registeredSeq := u.isRegistered(tuple.Actor, tuple.NextActor)
 
 		// Only emit drift when the empirical sequence is not registered.
 		if registeredSeq {
 			continue
+		}
+
+		// Research-first flag: set when the actor is a lead/director who
+		// posted in this window without a recorded lore search. lr-d482.
+		researchFirstFlag := false
+		if info, ok := result.researchInfo[tuple.Actor]; ok {
+			if isLeadOrDirector(info.role) && !info.hasLoreSearch {
+				researchFirstFlag = true
+			}
 		}
 
 		byActor[tuple.Actor] = append(byActor[tuple.Actor], DriftReport{
@@ -172,22 +231,36 @@ func (u *UsageInference) emitDrift(tuples map[sequenceTuple]int) ([]string, erro
 			ConversationKind:   tuple.ConversationKind,
 			ObservedCount:      count,
 			RegisteredAfterSeq: false,
+			ResearchFirstFlag:  researchFirstFlag,
 		})
 	}
 
 	var written []string
 	for actor, reports := range byActor {
 		windowLabel := u.cfg.Window.String()
+		notes := []string{
+			fmt.Sprintf("Drift detected over rolling window: %s", windowLabel),
+			fmt.Sprintf("Observed %d unregistered sequencing pattern(s) for actor %q", len(reports), actor),
+		}
+
+		// Append research-first note when any report in this batch has the flag set.
+		// lr-d482: signals lead/director posted without prior lore search in this window.
+		for _, r := range reports {
+			if r.ResearchFirstFlag {
+				notes = append(notes,
+					fmt.Sprintf("RESEARCH-FIRST: actor %q (lead/director) had no recorded lore search in the event window. Per workspace CLAUDE.md rule 8 + tome #453: existing engrams/tasks/tomes should be read before proposing fixes.", actor),
+				)
+				break // one note per actor batch is sufficient
+			}
+		}
+
 		pc := ProposedChange{
 			SchemaVersion: 1,
 			GeneratedAt:   time.Now().UTC(),
 			Source:        "usage-inference",
 			AgentName:     actor,
 			DriftReports:  reports,
-			Notes: []string{
-				fmt.Sprintf("Drift detected over rolling window: %s", windowLabel),
-				fmt.Sprintf("Observed %d unregistered sequencing pattern(s) for actor %q", len(reports), actor),
-			},
+			Notes:         notes,
 		}
 		path, err := WriteProposedChange(u.cfg.BaseDir, pc)
 		if err != nil {

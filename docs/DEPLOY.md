@@ -2,13 +2,14 @@
 
 ## Quick start — file source
 
-Build the binary and point it at a directory of agent YAML files:
+Production deploys read from a `clagentic-config` local clone; see `clagentic-config/docs/ARCH.md`
+for the canonical source layout. Point `--registry-dir` at the checked-out registry path:
 
 ```bash
 go build -o clagentic-directory ./cmd/clagentic-directory/
 ./clagentic-directory \
   --registry-source file \
-  --registry-dir ./examples/registry/ \
+  --registry-dir /path/to/clagentic-config/registry \
   --listen :8444
 ```
 
@@ -20,6 +21,9 @@ curl -s localhost:8444/readyz
 ```
 
 The service hot-reloads when files in the registry directory change — no restart required.
+
+> **Note:** `examples/registry/` in this repo contains platform self-test fixtures only.
+> Do not use it as a deploy target.
 
 ---
 

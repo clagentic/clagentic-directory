@@ -45,9 +45,17 @@ type ProposedChange struct {
 
 // DriftReport captures an observed vs registered sequencing mismatch.
 type DriftReport struct {
-	Actor              string  `yaml:"actor"`
-	NextActor          string  `yaml:"next_actor"`
-	ConversationKind   string  `yaml:"conversation_kind"`
-	ObservedCount      int     `yaml:"observed_count"`
-	RegisteredAfterSeq bool    `yaml:"registered_after_seq"`
+	Actor              string `yaml:"actor"`
+	NextActor          string `yaml:"next_actor"`
+	ConversationKind   string `yaml:"conversation_kind"`
+	ObservedCount      int    `yaml:"observed_count"`
+	RegisteredAfterSeq bool   `yaml:"registered_after_seq"`
+	// ResearchFirstFlag is true when the actor is a lead or director who
+	// posted in this conversation window without any recorded lore search
+	// (LastLoreSearchAt absent in the event window). This extends the
+	// lr-5646 usage-inference mechanism to surface the research-first
+	// failure pattern documented in lr-d482 (tome #453).
+	// Populated only when the relay event API exposes ActorRole and
+	// LastLoreSearchAt on RelayEvent; zero-value (false) otherwise.
+	ResearchFirstFlag bool `yaml:"research_first_flag,omitempty"`
 }

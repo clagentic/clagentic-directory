@@ -17,6 +17,12 @@ import (
 	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/store"
 )
 
+// buildRevision is injected by the binary-rebuild script via -ldflags "-X main.buildRevision=<sha>".
+// When not injected, the value is empty and the running binary relies on Go's built-in
+// debug/buildinfo VCS metadata (set automatically by go build from a git working tree).
+// lr-8fa1: version-drift detection for binary auto-rebuild.
+var buildRevision string
+
 // directoryConfig is a minimal representation of the clagentic-directory config file.
 // Only fields needed by the inspect subcommand are decoded here.
 type directoryConfig struct {
@@ -159,6 +165,13 @@ func main() {
 		level = slog.LevelError
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+
+	// Log build revision so operators can confirm which binary is running.
+	if buildRevision != "" {
+		slog.Info("clagentic-directory starting", "revision", buildRevision)
+	} else {
+		slog.Info("clagentic-directory starting", "revision", "embedded-vcs-or-unknown")
+	}
 
 	var s store.Store
 	switch *registrySource {

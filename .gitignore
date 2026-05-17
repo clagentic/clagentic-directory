@@ -1,5 +1,6 @@
-# Built binary (root-level only, not the cmd/ source directory)
+# Built binaries (root-level only, not the cmd/ source directory)
 /clagentic-directory
+/clagentic-directory-test
 
 # macOS
 .DS_Store

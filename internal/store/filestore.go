@@ -16,70 +16,137 @@ import (
 // Any string not in this set causes a hard load failure for v2 entries.
 // Update this alongside schemas/agent-entry.v2.yaml and schemas/vocabulary.v1.yaml.
 var v2ValidIntents = map[string]bool{
-	"code_work_requested":  true,
-	"code-generation":      true,
-	"implement-task":       true,
-	"pr_opened":            true,
+	// Code work
+	"code_work_requested":   true,
+	"code-generation":       true,
+	"implement-task":        true,
+	// Code review
+	"pr_opened":             true,
 	"code_ready_for_review": true,
-	"code-review":          true,
-	"review-pr":            true,
-	"review-commit":        true,
-	"merge_requested":      true,
-	"merge-pr":             true,
-	"release":              true,
-	"tag-release":          true,
-	"diagnostic_requested": true,
-	"root_cause_unknown":   true,
-	"escalation_diagnosis": true,
-	"deploy_requested":     true,
-	"runbook_run":          true,
-	"ops_check":            true,
-	"research_requested":   true,
-	"survey_requested":     true,
-	"research":             true,
-	"investigate":          true,
-	"find-information":     true,
-	"scaffold_requested":   true,
-	"new_project_setup":    true,
-	"escalation":           true,
-	"portfolio_question":   true,
-	"dispatch_routing":     true,
+	"code-review":           true,
+	"review-pr":             true,
+	"review-commit":         true,
+	// Merge / release
+	"merge_requested":       true,
+	"merge-pr":              true,
+	"release":               true,
+	"tag-release":           true,
+	// Diagnosis
+	"diagnostic_requested":  true,
+	"root_cause_unknown":    true,
+	"escalation_diagnosis":  true,
+	// Ops
+	"deploy_requested":      true,
+	"runbook_run":           true,
+	"ops_check":             true,
+	// Research
+	"research_requested":    true,
+	"survey_requested":      true,
+	"research":              true,
+	"investigate":           true,
+	"find-information":      true,
+	// Web research
+	"web-research":          true,
+	"web-search":            true,
+	"url-fetch":             true,
+	"fact-lookup":           true,
+	"doc-lookup":            true,
+	"large-context-analysis": true,
+	"codebase-survey":       true,
+	"community-sentiment":   true,
+	"reddit-research":       true,
+	"user-opinion-research": true,
+	// Analysis & review
+	"deep-analysis":         true,
+	"architecture-review":   true,
+	"security-review":       true,
+	"tradeoff-evaluation":   true,
+	"second-opinion":        true,
+	// Model delegation
+	"delegate-to-codex":     true,
+	"codex-review":          true,
+	"gpt-reasoning":         true,
+	"local-inference":       true,
+	"cheap-inference":       true,
+	"offline-inference":     true,
+	"embeddings":            true,
+	// Intelligence harvesting
+	"inspect-repo":          true,
+	"harvest-intelligence":  true,
+	"ingest-candidate":      true,
+	// Scaffolding
+	"scaffold_requested":    true,
+	"new_project_setup":     true,
+	// Testing & probing
+	"probe":                 true,
+	"wiring-test":           true,
+	// Routing / escalation
+	"escalation":            true,
+	"portfolio_question":    true,
+	"dispatch_routing":      true,
 }
 
 // v2ValidConversationKinds is the closed set of conversation_kinds valid in schema_version: 2.
 var v2ValidConversationKinds = map[string]bool{
-	"build":       true,
-	"consult":     true,
-	"smoke":       true,
-	"gate":        true,
-	"research":    true,
-	"review":      true,
-	"deploy":      true,
-	"planning":    true,
-	"directive":   true,
-	"escalation":  true,
-	"coordination": true,
+	"build":           true,
+	"consult":         true,
+	"smoke":           true,
+	"gate":            true,
+	"research":        true,
+	"review":          true,
+	"deploy":          true,
+	"planning":        true,
+	"directive":       true,
+	"escalation":      true,
+	"coordination":    true,
+	// Additional kinds from clagentic-config canonical agents
+	"advisory":        true,
+	"code-generation": true,
+	"classification":  true,
+	"summarization":   true,
+	"design":          true,
+	"test":            true,
 }
 
 // v2ValidTrustLabels is the closed set of trust_labels valid in schema_version: 2.
 var v2ValidTrustLabels = map[string]bool{
+	// Write / gate labels
 	"read-only":          true,
 	"write-pr":           true,
 	"write-ops":          true,
 	"merge-gate":         true,
 	"publish":            true,
+	// Routing / authority labels
 	"observe":            true,
 	"escalation-surface": true,
 	"dispatch-authority": true,
+	// Agent character labels from clagentic-config canonical agents
+	"trusted":            true,
+	"autonomous":         true,
+	"lore-writer":        true,
+	"high-stakes":        true,
+	"release-authorized": true,
+	// Model / source origin labels
+	"external-model":     true,
+	"external-source":    true,
+	"local-model":        true,
+	// Lifecycle labels
+	"test-only":          true,
 }
 
 // v2ValidFormats is the closed set of returns.format values valid in schema_version: 2.
 var v2ValidFormats = map[string]bool{
-	"json":               true,
-	"structured":         true,
-	"structured-markdown": true,
-	"url":               true,
-	"text":              true,
+	"json":                 true,
+	"structured":           true,
+	"structured-markdown":  true,
+	"url":                  true,
+	"text":                 true,
+	// Additional formats from clagentic-config canonical agents
+	"agent-result-json":    true,
+	"verbatim-model-output": true,
+	"lore-tome":            true,
+	"lore-tasks":           true,
+	"plaintext":            true,
 }
 
 // FileStore implements Store by reading YAML agent entries from a directory.

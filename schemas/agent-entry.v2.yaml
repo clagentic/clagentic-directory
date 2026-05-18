@@ -51,31 +51,71 @@ properties:
               items:
                 type: string
                 enum:
+                  # Code work
                   - code_work_requested
                   - code-generation
                   - implement-task
+                  # Code review
                   - pr_opened
                   - code_ready_for_review
                   - code-review
                   - review-pr
                   - review-commit
+                  # Merge / release
                   - merge_requested
                   - merge-pr
                   - release
                   - tag-release
+                  # Diagnosis
                   - diagnostic_requested
                   - root_cause_unknown
                   - escalation_diagnosis
+                  # Ops
                   - deploy_requested
                   - runbook_run
                   - ops_check
+                  # Research
                   - research_requested
                   - survey_requested
                   - research
                   - investigate
                   - find-information
+                  # Web research
+                  - web-research
+                  - web-search
+                  - url-fetch
+                  - fact-lookup
+                  - doc-lookup
+                  - large-context-analysis
+                  - codebase-survey
+                  - community-sentiment
+                  - reddit-research
+                  - user-opinion-research
+                  # Analysis & review
+                  - deep-analysis
+                  - architecture-review
+                  - security-review
+                  - tradeoff-evaluation
+                  - second-opinion
+                  # Model delegation
+                  - delegate-to-codex
+                  - codex-review
+                  - gpt-reasoning
+                  - local-inference
+                  - cheap-inference
+                  - offline-inference
+                  - embeddings
+                  # Intelligence harvesting
+                  - inspect-repo
+                  - harvest-intelligence
+                  - ingest-candidate
+                  # Scaffolding
                   - scaffold_requested
                   - new_project_setup
+                  # Testing & probing
+                  - probe
+                  - wiring-test
+                  # Routing / escalation
                   - escalation
                   - portfolio_question
                   - dispatch_routing
@@ -95,6 +135,13 @@ properties:
                   - directive
                   - escalation
                   - coordination
+                  # Additional kinds from canonical agents
+                  - advisory
+                  - code-generation
+                  - classification
+                  - summarization
+                  - design
+                  - test
             after_roles:
               type: array
               items:
@@ -118,16 +165,36 @@ properties:
                 - structured-markdown
                 - url
                 - text
+                # Additional formats from canonical agents
+                - agent-result-json
+                - verbatim-model-output
+                - lore-tome
+                - lore-tasks
+                - plaintext
   trust_labels:
     type: array
     items:
       type: string
       enum:
+        # Write / gate labels
         - read-only
         - write-pr
         - write-ops
         - merge-gate
         - publish
+        # Routing / authority labels
         - observe
         - escalation-surface
         - dispatch-authority
+        # Agent character labels
+        - trusted
+        - autonomous
+        - lore-writer
+        - high-stakes
+        - release-authorized
+        # Model / source origin labels
+        - external-model
+        - external-source
+        - local-model
+        # Lifecycle labels
+        - test-only

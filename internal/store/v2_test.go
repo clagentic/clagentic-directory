@@ -95,7 +95,9 @@ func TestV2InvalidConversationKindFails(t *testing.T) {
 // TestV2InvalidTrustLabelFails verifies that an unknown trust_label fails with a clear error.
 func TestV2InvalidTrustLabelFails(t *testing.T) {
 	dir := t.TempDir()
-	badYAML := strings.ReplaceAll(v2ValidYAML, "- write-pr", "- trusted")
+	// Use a sentinel that is not in the v2 enum and never will be.
+	// (Do not use "trusted" here — that was added to v2ValidTrustLabels in lr-e391.)
+	badYAML := strings.ReplaceAll(v2ValidYAML, "- write-pr", "- definitely-not-a-valid-trust-label")
 	if err := os.WriteFile(filepath.Join(dir, "bad-trust.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +105,7 @@ func TestV2InvalidTrustLabelFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown trust_label, got nil")
 	}
-	if !strings.Contains(err.Error(), "trusted") {
+	if !strings.Contains(err.Error(), "definitely-not-a-valid-trust-label") {
 		t.Errorf("error should name the offending value; got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "trust_labels") {

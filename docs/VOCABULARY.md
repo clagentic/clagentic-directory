@@ -52,6 +52,33 @@ Intents are matched by `FindByCapability(intent...)` to find agents that handle 
 | `escalation` | An issue has been escalated for routing or decision. | Routes to the escalation surface (agentic-director). Use when a blocking issue needs human or director judgment. |
 | `portfolio_question` | A question about the agent portfolio or dispatch routing. | Triggers the director for questions like "which agent should handle X?" |
 | `dispatch_routing` | A routing or dispatch decision is needed. | The director is requested to decide how to route a task or escalation. |
+| `web-research` | Fetch and synthesize information from web pages or search results. | Use for agents that query external web sources and synthesize results. |
+| `web-search` | Run a web search query and return results. | Narrower than `web-research`; implies a search-engine query rather than direct URL fetch. |
+| `url-fetch` | Retrieve and summarize the content of a specific URL. | Use when a known URL must be fetched and summarized. |
+| `fact-lookup` | Look up a specific fact, version, or configuration detail. | Narrower than `research`; implies a factual lookup rather than synthesis. |
+| `doc-lookup` | Check official documentation for a known library, API, or tool. | Use when the target is official docs for a named dependency. |
+| `large-context-analysis` | Analyze content requiring more than 100K tokens of context. | Primary trigger for Gemini-backed agents; implies context-window requirement exceeds Claude's native limit. |
+| `codebase-survey` | Read and summarize a large codebase in one pass. | Use for full-repo analysis tasks routed to Gemini or other large-context agents. |
+| `community-sentiment` | Research what online communities think about a topic. | Triggers agents that query Reddit, forums, or social platforms. |
+| `reddit-research` | Search Reddit subreddits and synthesize community opinion. | Use for scoped Reddit research tasks. |
+| `user-opinion-research` | Gather user perspectives from online forums or communities. | Broader than `reddit-research`; covers any forum or community sentiment source. |
+| `deep-analysis` | Apply extended reasoning to a complex, ambiguous, or high-stakes problem. | Routes to Opus-backed or other deep-reasoning agents (MILLER, agentic-director). |
+| `architecture-review` | Evaluate a system design or architectural decision. | Use for design-level review tasks where trade-offs and long-term implications must be weighed. |
+| `security-review` | Analyze code or design for security vulnerabilities or privacy risks. | Routes to agents with security-analysis capability. |
+| `tradeoff-evaluation` | Weigh competing options and recommend a course of action. | Use when the task is to compare two or more paths and produce a recommendation. |
+| `second-opinion` | Get an independent evaluation of a design, plan, or code change. | Triggers cross-provider or adversarial review agents (Codex, MILLER). |
+| `delegate-to-codex` | Route a task to the OpenAI Codex CLI for GPT-family execution. | Primary trigger for the `codex` agent. Use when Codex is explicitly requested. |
+| `codex-review` | Request an adversarial or second-opinion code review from Codex. | Use when a Codex-backed review is requested by name. |
+| `gpt-reasoning` | Apply GPT-5.x reasoning to a task for cross-provider verification. | Use when GPT-family reasoning is explicitly requested. |
+| `local-inference` | Run inference on local models hosted on ollama.akuehner.com. | Primary trigger for the `ollama` agent. |
+| `cheap-inference` | Execute a task using low-cost local models when quality requirements are modest. | Use when cost is the driving constraint and quality can be reduced. |
+| `offline-inference` | Run inference without calling external APIs. | Use when network isolation or air-gap requirements apply. |
+| `embeddings` | Generate vector embeddings for semantic search or RAG pipelines. | Routes to embedding-capable local models (nomic-embed-text via Ollama). |
+| `inspect-repo` | Run a Stage 1 Tiamut inspection on a repository advisory. | Primary trigger for the `tiamut` inspect stage. |
+| `harvest-intelligence` | Extract high-signal findings from a repository for potential ingestion. | Broader Tiamut trigger; used when the source is not a named advisory. |
+| `ingest-candidate` | Run a Stage 2 Tiamut ingest on a user-approved advisory. | Triggers Tiamut's user-gated ingest stage. |
+| `probe` | Send a probe to verify agent wiring or routing configuration. | Use for smoke-testing agent routing; triggers test and probe agents. |
+| `wiring-test` | Test that named-agent routing resolves correctly end-to-end. | More specific than `probe`; implies the Clay named-agents routing layer is the target. |
 
 ---
 
@@ -74,6 +101,12 @@ Used by `FindByConversationKind(kind)`.
 | `directive` | An operator directive: run this, set up that. | DRUMMER, ROCI |
 | `escalation` | An escalation session: blocked work, unresolved issue. | agentic-director, MILLER |
 | `coordination` | A cross-agent coordination conversation. | agentic-director |
+| `advisory` | An advisory session: the agent provides a recommendation or finding on a specific question. | amos, drummer, miller, naomi, roci, tiamut, codex |
+| `code-generation` | A session whose primary output is generated code (spec → code). | amos, ollama, codex |
+| `classification` | A session where the primary task is classifying input into categories. | ollama (phi4-mini, qwen2.5-coder) |
+| `summarization` | A session where the primary task is condensing a large input. | ollama |
+| `design` | A design-level session: architecture, API design, or system specification. | opus, agentic-director |
+| `test` | A test or wiring-verification session; not for production use. | test-agent |
 
 ---
 
@@ -93,6 +126,15 @@ policies and relay logic to gate authorization decisions.
 | `observe` | Agent observes events (e.g. monitors, logging agents) but takes no autonomous action. | Passive monitoring agents |
 | `escalation-surface` | Agent is the escalation surface. Humans and agents route unresolved issues here. | agentic-director |
 | `dispatch-authority` | Agent has authority to dispatch and route to other agents. | agentic-director |
+| `trusted` | Agent operates within established crew-manifest role boundaries. | Most crew agents (amos, naomi, peaches, prax, miller, drummer) |
+| `autonomous` | Agent may act without per-action user confirmation within its defined scope. | amos, naomi, tiamut, agentic-director |
+| `lore-writer` | Agent is authorized to write tomes and create tasks in the Lore system. | amos, naomi, peaches, prax, miller, drummer, tiamut |
+| `high-stakes` | Agent is used for decisions with significant or hard-to-reverse consequences. | naomi, opus, agentic-director |
+| `release-authorized` | Agent is authorized to perform release-gate actions (merge, tag, push). | naomi |
+| `external-model` | Agent delegates execution to a non-Claude model or API. | codex, gemini-researcher, ollama |
+| `external-source` | Agent fetches information from external web sources. | prax, web-researcher, reddit-researcher |
+| `local-model` | Agent uses locally-hosted models rather than cloud APIs. | ollama |
+| `test-only` | Agent is for verification and testing purposes only; not for production use. | test-agent |
 
 ---
 
@@ -108,3 +150,8 @@ structure of the `verdict_field` value. It does not change how the registry stor
 | `structured-markdown` | Markdown document with structured sections (headings, tables, code blocks). For human-readable reports. |
 | `url` | A URL string. Typical for PR URLs returned by builders. |
 | `text` | Unstructured plain text. For log output, diagnostic narratives, etc. |
+| `agent-result-json` | Structured JSON matching the `agent_result` envelope schema used by crew agents. |
+| `verbatim-model-output` | The raw output of a delegated model (Codex, Ollama) returned without transformation. |
+| `lore-tome` | A LORE tome record. The verdict_field carries a tome ID or URL. |
+| `lore-tasks` | One or more LORE tasks created as output. The verdict_field carries task IDs. |
+| `plaintext` | Simple unstructured text, distinct from `text` to signal no markdown or structure is expected. |

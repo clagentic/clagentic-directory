@@ -2,14 +2,13 @@
 
 ## Quick start — file source
 
-Production deploys read from a `clagentic-config` local clone; see `clagentic-config/docs/ARCH.md`
-for the canonical source layout. Point `--registry-dir` at the checked-out registry path:
+Build the binary and point `--registry-dir` at a directory of agent YAML files:
 
 ```bash
 go build -o clagentic-directory ./cmd/clagentic-directory/
 ./clagentic-directory \
   --registry-source file \
-  --registry-dir /path/to/clagentic-config/registry \
+  --registry-dir /path/to/your/registry \
   --listen :8444
 ```
 
@@ -108,6 +107,26 @@ Run with git source:
 ```
 
 The service clones once at startup and re-fetches on the poll interval. The local cache survives restarts; a restart with the cache present skips the initial clone.
+
+---
+
+## Vocabulary extensions
+
+The base vocabulary is a closed set. To allow `schema_version: 2` entries that use
+platform-specific values (custom trust labels, formats, intents, or conversation kinds),
+supply a vocabulary extensions file:
+
+```bash
+./clagentic-directory \
+  --registry-source file \
+  --registry-dir /path/to/your/registry \
+  --vocabulary-extensions /etc/clagentic/vocab-extensions.yaml \
+  --listen :8444
+```
+
+The extensions file is a YAML file with four optional lists. See
+`examples/vocabulary-extensions.yaml` for the format and `docs/VOCABULARY.md` for a
+description of when to use extensions vs. proposing additions to the base vocabulary.
 
 ---
 

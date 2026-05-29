@@ -165,11 +165,9 @@ properties:
                 - structured-markdown
                 - url
                 - text
-                # Additional formats from canonical agents
+                # Additional formats
                 - agent-result-json
                 - verbatim-model-output
-                - lore-tome
-                - lore-tasks
                 - plaintext
   trust_labels:
     type: array
@@ -189,7 +187,6 @@ properties:
         # Agent character labels
         - trusted
         - autonomous
-        - lore-writer
         - high-stakes
         - release-authorized
         # Model / source origin labels

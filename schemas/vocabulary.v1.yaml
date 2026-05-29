@@ -103,7 +103,7 @@ properties:
       - directive
       - escalation
       - coordination
-      # Additional kinds from canonical agents
+      # Additional kinds
       - advisory
       - code-generation
       - classification
@@ -129,7 +129,6 @@ properties:
       # Agent character labels
       - trusted
       - autonomous
-      - lore-writer
       - high-stakes
       - release-authorized
       # Model / source origin labels
@@ -149,11 +148,9 @@ properties:
       - structured-markdown
       - url
       - text
-      # Additional formats from canonical agents
+      # Additional formats
       - agent-result-json
       - verbatim-model-output
-      - lore-tome
-      - lore-tasks
       - plaintext
 
 # Inline definitions for reference by schema tooling
@@ -212,7 +209,7 @@ definitions:
     delegate-to-codex: "Route a task to the OpenAI Codex CLI for GPT-family execution."
     codex-review: "Request an adversarial or second-opinion code review from Codex."
     gpt-reasoning: "Apply GPT-5.x reasoning to a task for cross-provider verification."
-    local-inference: "Run inference on local models hosted on ollama.akuehner.com."
+    local-inference: "Run inference on locally-hosted models."
     cheap-inference: "Execute a task using low-cost local models when quality requirements are modest."
     offline-inference: "Run inference without calling external APIs."
     embeddings: "Generate vector embeddings for semantic search or RAG pipelines."
@@ -232,9 +229,8 @@ definitions:
     escalation-surface: "Agent is the escalation surface; humans and agents route unresolved issues here."
     dispatch-authority: "Agent has authority to dispatch and route to other agents."
     # Agent character labels
-    trusted: "Agent operates within established crew-manifest role boundaries."
+    trusted: "Agent operates within established role boundaries."
     autonomous: "Agent may act without per-action user confirmation within its defined scope."
-    lore-writer: "Agent is authorized to write tomes and create tasks in the Lore system."
     high-stakes: "Agent is used for decisions with significant or hard-to-reverse consequences."
     release-authorized: "Agent is authorized to perform release-gate actions (merge, tag, push)."
     # Model / source origin labels

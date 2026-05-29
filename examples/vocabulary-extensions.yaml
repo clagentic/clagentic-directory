@@ -1,0 +1,30 @@
+# vocabulary-extensions.yaml — example platform-specific vocabulary extensions
+#
+# Pass this file to clagentic-directory with:
+#   --vocabulary-extensions /path/to/vocabulary-extensions.yaml
+#
+# Values here are merged into the base closed enums at startup.
+# Base values are never removed. Any combination of fields may be present;
+# omitted fields are ignored.
+#
+# This example shows extensions for a hypothetical platform that adds
+# a knowledge-management agent tier and a session-logging role.
+
+# Additional intent strings beyond the base vocabulary.
+intents:
+  - knowledge-write
+  - session-log
+
+# Additional conversation_kinds beyond the base vocabulary.
+conversation_kinds:
+  - knowledge-update
+
+# Additional trust_labels beyond the base vocabulary.
+trust_labels:
+  - session-logger
+  - knowledge-writer
+
+# Additional returns.format values beyond the base vocabulary.
+formats:
+  - knowledge-record
+  - knowledge-tasks

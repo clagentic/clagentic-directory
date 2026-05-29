@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // v2ValidYAML is a minimal valid schema_version: 2 agent entry.
@@ -285,6 +287,111 @@ trust_labels:
 			t.Errorf("agent %s: returns.format must be non-empty", a.Name)
 		}
 	}
+}
+
+// TestExampleRegistryRoundTrip parses every YAML in examples/registry/ and verifies
+// that all fields present in the YAML arrive non-nil/non-empty in the parsed Agent
+// struct. This catches silent null-parse caused by nesting mismatches between YAML
+// and Go structs (e.g. lr-a7fe: after_agents was silently left nil when nesting
+// diverged between SCHEMA.md and rawTriggers).
+func TestExampleRegistryRoundTrip(t *testing.T) {
+	dir := "../../examples/registry"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Skipf("examples/registry not found at %s: %v", dir, err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".yaml") && !strings.HasSuffix(e.Name(), ".yml")) {
+			continue
+		}
+		e := e
+		t.Run(e.Name(), func(t *testing.T) {
+			path := filepath.Join(dir, e.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading %s: %v", path, err)
+			}
+
+			// Parse the raw YAML independently to know what fields are populated.
+			var raw rawEntry
+			if err := unmarshalYAML(data, &raw); err != nil {
+				t.Fatalf("raw yaml.Unmarshal failed: %v", err)
+			}
+
+			// Parse via the full pipeline.
+			agent, err := parseEntry(path, data)
+			if err != nil {
+				t.Fatalf("parseEntry failed: %v", err)
+			}
+
+			// Top-level identity fields.
+			if raw.Identity.Name != "" && agent.Name == "" {
+				t.Errorf("identity.name present in YAML but agent.Name is empty")
+			}
+			if raw.Identity.Version != "" && agent.Version == "" {
+				t.Errorf("identity.version present in YAML but agent.Version is empty")
+			}
+			if raw.Identity.Description != "" && agent.Description == "" {
+				t.Errorf("identity.description present in YAML but agent.Description is empty")
+			}
+
+			// Trust labels.
+			if len(raw.TrustLabels) > 0 && len(agent.TrustLabels) == 0 {
+				t.Errorf("trust_labels present in YAML (%v) but agent.TrustLabels is empty", raw.TrustLabels)
+			}
+
+			// Capabilities round-trip.
+			if len(raw.Capabilities) != len(agent.Capabilities) {
+				t.Errorf("capability count mismatch: YAML has %d, parsed has %d",
+					len(raw.Capabilities), len(agent.Capabilities))
+			}
+
+			for i, rc := range raw.Capabilities {
+				if i >= len(agent.Capabilities) {
+					break
+				}
+				cap := agent.Capabilities[i]
+
+				if rc.ID != "" && cap.ID == "" {
+					t.Errorf("capability[%d]: id present in YAML but cap.ID is empty", i)
+				}
+				if rc.Description != "" && cap.Description == "" {
+					t.Errorf("capability[%d] %q: description present in YAML but cap.Description is empty", i, rc.ID)
+				}
+				if rc.Returns.VerdictField != "" && cap.Returns.VerdictField == "" {
+					t.Errorf("capability[%d] %q: returns.verdict_field present in YAML but cap.Returns.VerdictField is empty", i, rc.ID)
+				}
+				if rc.Returns.Format != "" && cap.Returns.Format == "" {
+					t.Errorf("capability[%d] %q: returns.format present in YAML but cap.Returns.Format is empty", i, rc.ID)
+				}
+
+				// Trigger slices — the original bug: after_agents silently nil.
+				if len(rc.Triggers.Intents) > 0 && len(cap.Triggers.Intents) == 0 {
+					t.Errorf("capability[%d] %q: triggers.intents present in YAML (%v) but Triggers.Intents is empty",
+						i, rc.ID, rc.Triggers.Intents)
+				}
+				if len(rc.Triggers.ConversationKinds) > 0 && len(cap.Triggers.ConversationKinds) == 0 {
+					t.Errorf("capability[%d] %q: triggers.conversation_kinds present in YAML (%v) but Triggers.ConversationKinds is empty",
+						i, rc.ID, rc.Triggers.ConversationKinds)
+				}
+				if len(rc.Triggers.AfterAgents) > 0 && len(cap.Triggers.AfterAgents) == 0 {
+					t.Errorf("capability[%d] %q: triggers.after_agents present in YAML (%v) but Triggers.AfterAgents is nil — nesting mismatch (see lr-a7fe)",
+						i, rc.ID, rc.Triggers.AfterAgents)
+				}
+				if len(rc.Triggers.AfterRoles) > 0 && len(cap.Triggers.AfterRoles) == 0 {
+					t.Errorf("capability[%d] %q: triggers.after_roles present in YAML (%v) but Triggers.AfterRoles is nil",
+						i, rc.ID, rc.Triggers.AfterRoles)
+				}
+			}
+		})
+	}
+}
+
+// unmarshalYAML parses raw YAML without the full validation pipeline,
+// so tests can inspect what fields the YAML declares.
+func unmarshalYAML(data []byte, v interface{}) error {
+	return yaml.Unmarshal(data, v)
 }
 
 // TestAllFleetEntriesValidateAsV2 checks that every YAML in examples/registry/ is

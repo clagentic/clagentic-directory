@@ -1,6 +1,6 @@
 schema_version: 2
 identity:
-  name: miller
+  name: diagnostician
   version: 1.0.0
   description: >
     Diagnostic specialist. Investigates failures, root-causes unknown errors,
@@ -22,7 +22,7 @@ capabilities:
       after_roles: []
       after_agents: []
     returns:
-      verdict_field: miller_diagnosis
+      verdict_field: diagnosis_result
       format: structured
 trust_labels:
   - read-only

@@ -1,6 +1,6 @@
 schema_version: 2
 identity:
-  name: amos
+  name: builder
   version: 1.0.0
   description: >
     Autonomous builder. Picks up one unit of code work at a time and runs it to
@@ -21,7 +21,7 @@ capabilities:
       after_roles: []
       after_agents: []
     returns:
-      verdict_field: amos_pr_url
+      verdict_field: pr_url
       format: url
 trust_labels:
   - write-pr

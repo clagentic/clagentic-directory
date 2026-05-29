@@ -1,6 +1,6 @@
 schema_version: 2
 identity:
-  name: roci
+  name: scaffolder
   version: 1.0.0
   description: >
     Scaffolding agent. Creates new projects and bootstraps code structure from
@@ -22,7 +22,7 @@ capabilities:
       after_roles: []
       after_agents: []
     returns:
-      verdict_field: roci_scaffold_summary
+      verdict_field: scaffold_summary
       format: structured
 trust_labels:
   - write-pr

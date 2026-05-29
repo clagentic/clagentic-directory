@@ -106,17 +106,24 @@ func (w *EngramWatcher) ProcessEvents(events []EngramEvent) ([]string, error) {
 			continue
 		}
 
-		caps := extractCapabilitiesFromDiff(ev.Diff)
+		caps, declared := extractCapabilitiesFromText(ev.Diff)
+		source := "engram-watch"
+		notes := []string{
+			fmt.Sprintf("Derived from agent-definition-file diff: %s", ev.FilePath),
+			fmt.Sprintf("Engram event ID: %s", ev.ID),
+		}
+		if declared {
+			notes = append(notes, "Capabilities extracted from self-declaration block (high confidence).")
+		} else {
+			notes = append(notes, "Capabilities inferred heuristically from diff (low confidence); consider adding a <!-- clagentic-directory --> block.")
+		}
 		pc := ProposedChange{
 			SchemaVersion: 1,
 			GeneratedAt:   time.Now().UTC(),
-			Source:        "engram-watch",
+			Source:        source,
 			AgentName:     agentName,
 			Capabilities:  caps,
-			Notes: []string{
-				fmt.Sprintf("Derived from agent-definition-file diff: %s", ev.FilePath),
-				fmt.Sprintf("Engram event ID: %s", ev.ID),
-			},
+			Notes:         notes,
 		}
 
 		path, err := WriteProposedChange(w.cfg.BaseDir, pc)
@@ -177,7 +184,7 @@ func isAgentDefFile(path string) bool {
 }
 
 // extractAgentFromPath guesses an agent name from the file path.
-// e.g. "/workspace/crew-manifest/amos/SKILL.md" -> "amos"
+// e.g. "/workspace/agents/builder/SKILL.md" -> "builder"
 func extractAgentFromPath(path string) string {
 	parts := strings.Split(path, "/")
 	// Walk backwards: skip the filename, return the first meaningful segment.

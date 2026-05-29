@@ -1,6 +1,6 @@
 schema_version: 2
 identity:
-  name: drummer
+  name: ops-agent
   version: 1.0.0
   description: >
     Ops and runbook agent. Executes deployment runbooks, checks operational
@@ -22,7 +22,7 @@ capabilities:
       after_roles: []
       after_agents: []
     returns:
-      verdict_field: drummer_outcome
+      verdict_field: ops_outcome
       format: structured
 trust_labels:
   - write-ops

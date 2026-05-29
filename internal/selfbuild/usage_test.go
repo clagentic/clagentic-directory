@@ -25,23 +25,23 @@ func (m *mockStoreReader) FindBySequencing(afterAgent string) []selfbuild.AgentR
 	return refs
 }
 
-// Fixture events: amos always precedes peaches, but peaches->naomi is NOT registered.
+// Fixture events: builder always precedes reviewer, but reviewer->merge-gate is NOT registered.
 var usageFixtureEvents = []selfbuild.RelayEvent{
-	{Actor: "amos", NextActor: "peaches", ConversationKind: "code-review", Timestamp: time.Now()},
-	{Actor: "amos", NextActor: "peaches", ConversationKind: "code-review", Timestamp: time.Now()},
-	{Actor: "peaches", NextActor: "naomi", ConversationKind: "code-review", Timestamp: time.Now()},
-	{Actor: "peaches", NextActor: "naomi", ConversationKind: "code-review", Timestamp: time.Now()},
-	{Actor: "peaches", NextActor: "naomi", ConversationKind: "code-review", Timestamp: time.Now()},
+	{Actor: "builder", NextActor: "reviewer", ConversationKind: "code-review", Timestamp: time.Now()},
+	{Actor: "builder", NextActor: "reviewer", ConversationKind: "code-review", Timestamp: time.Now()},
+	{Actor: "reviewer", NextActor: "merge-gate", ConversationKind: "code-review", Timestamp: time.Now()},
+	{Actor: "reviewer", NextActor: "merge-gate", ConversationKind: "code-review", Timestamp: time.Now()},
+	{Actor: "reviewer", NextActor: "merge-gate", ConversationKind: "code-review", Timestamp: time.Now()},
 	// This one IS registered — should not produce drift.
-	{Actor: "amos", NextActor: "miller", ConversationKind: "troubleshoot", Timestamp: time.Now()},
+	{Actor: "builder", NextActor: "diagnostician", ConversationKind: "troubleshoot", Timestamp: time.Now()},
 }
 
 func newFixtureStore() *mockStoreReader {
 	return &mockStoreReader{
 		registered: map[string][]string{
-			// amos->miller is registered; amos->peaches is NOT.
-			"amos": {"miller"},
-			// peaches has no registered after_agents.
+			// builder->diagnostician is registered; builder->reviewer is NOT.
+			"builder": {"diagnostician"},
+			// reviewer has no registered after_agents.
 		},
 	}
 }
@@ -61,7 +61,7 @@ func TestUsageInference_Analyze(t *testing.T) {
 		t.Fatalf("Analyze: %v", err)
 	}
 
-	// Expect drift for: amos->peaches (unregistered) and peaches->naomi (unregistered).
+	// Expect drift for: builder->reviewer (unregistered) and reviewer->merge-gate (unregistered).
 	// They are in different actor groups, so 2 files.
 	if len(written) != 2 {
 		t.Fatalf("len(written) = %d, want 2; paths: %v", len(written), written)
@@ -101,9 +101,9 @@ func TestUsageInference_RegisteredPairSuppressed(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// amos->miller is registered; provide only that event.
+	// builder->diagnostician is registered; provide only that event.
 	events := []selfbuild.RelayEvent{
-		{Actor: "amos", NextActor: "miller", ConversationKind: "troubleshoot", Timestamp: time.Now()},
+		{Actor: "builder", NextActor: "diagnostician", ConversationKind: "troubleshoot", Timestamp: time.Now()},
 	}
 	u := selfbuild.NewUsageInference(cfg, newFixtureStore())
 
@@ -124,8 +124,8 @@ func TestUsageInference_EmptyActorSkipped(t *testing.T) {
 		RunInterval: time.Hour,
 	}
 	events := []selfbuild.RelayEvent{
-		{Actor: "", NextActor: "naomi", ConversationKind: "merge"},
-		{Actor: "amos", NextActor: "", ConversationKind: "merge"},
+		{Actor: "", NextActor: "merge-gate", ConversationKind: "merge"},
+		{Actor: "builder", NextActor: "", ConversationKind: "merge"},
 	}
 	u := selfbuild.NewUsageInference(cfg, newFixtureStore())
 
@@ -176,11 +176,11 @@ func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) 
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// lore-lead is a lead (ActorRole="lead") with no LastLoreSearchAt — flag should fire.
+	// project-lead is a lead (ActorRole="lead") with no LastLoreSearchAt — flag should fire.
 	events := []selfbuild.RelayEvent{
-		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
 			ActorRole: "lead", LastLoreSearchAt: ""},
-		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
 			ActorRole: "lead", LastLoreSearchAt: ""},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
@@ -229,9 +229,9 @@ func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// lore-lead with a lore search recorded — flag should NOT fire.
+	// project-lead with a lore search recorded — flag should NOT fire.
 	events := []selfbuild.RelayEvent{
-		{Actor: "lore-lead", NextActor: "amos", ConversationKind: "build", Timestamp: time.Now(),
+		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
 			ActorRole: "lead", LastLoreSearchAt: "2026-05-17T12:00:00Z"},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
@@ -261,7 +261,7 @@ func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
 }
 
 // TestUsageInference_ResearchFirstFlag_ClearForCrew verifies that
-// ResearchFirstFlag is NOT set for crew agents (amos, naomi, etc.). lr-d482.
+// ResearchFirstFlag is NOT set for crew agents. lr-d482.
 func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := selfbuild.UsageConfig{
@@ -269,9 +269,9 @@ func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// amos is crew — no research-first flag regardless of lore search status.
+	// builder is crew — no research-first flag regardless of lore search status.
 	events := []selfbuild.RelayEvent{
-		{Actor: "amos", NextActor: "naomi", ConversationKind: "build", Timestamp: time.Now(),
+		{Actor: "builder", NextActor: "merge-gate", ConversationKind: "build", Timestamp: time.Now(),
 			ActorRole: "crew", LastLoreSearchAt: ""},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
@@ -281,8 +281,8 @@ func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 		t.Fatalf("Analyze: %v", err)
 	}
 	if len(written) == 0 {
-		// No drift report means no sequencing mismatch (amos->naomi might be registered
-		// in a future fixture). In any case the flag should not fire for crew.
+		// No drift report means no sequencing mismatch. In any case the flag should
+		// not fire for crew agents.
 		return
 	}
 	data, err := os.ReadFile(written[0])
@@ -294,8 +294,8 @@ func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	for _, dr := range pc.DriftReports {
-		if dr.Actor == "amos" && dr.ResearchFirstFlag {
-			t.Error("expected ResearchFirstFlag=false for crew agent amos")
+		if dr.Actor == "builder" && dr.ResearchFirstFlag {
+			t.Error("expected ResearchFirstFlag=false for crew agent")
 		}
 	}
 }

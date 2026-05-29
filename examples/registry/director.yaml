@@ -1,6 +1,6 @@
 schema_version: 2
 identity:
-  name: agentic-director
+  name: director
   version: 1.0.0
   description: >
     Escalation surface and portfolio router. Receives escalations from agents

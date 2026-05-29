@@ -101,8 +101,34 @@ and capability keywords and writes a `proposed_changes/` entry.
 2. Filter for events whose `file_path` ends with `SKILL.md` or `AGENT.md`.
 3. Resolve agent name from the event's `agent` field, or extract from path segments.
 4. Rate-limit: skip if a proposed change for this agent was written within the dedup window.
-5. Parse `+`-prefixed lines in the diff for trigger/capability/returns keywords.
+5. Extract capabilities (see **Self-declaration block** below).
 6. Write `proposed_changes/<agent>.<timestamp>.yaml`.
+
+### Self-declaration block
+
+Agent definition files can embed a structured capability declaration block for higher-confidence
+extraction. When a `<!-- clagentic-directory ... -->` block is present in the diff, its contents
+are parsed directly and all fields are marked `confidence: extracted`. Without the block, the
+watcher falls back to heuristic keyword matching (`confidence: inferred`).
+
+Add the block to an `AGENT.md` or `SKILL.md` as an HTML comment (invisible in rendered docs):
+
+```markdown
+<!-- clagentic-directory
+capabilities:
+  - id: review-pr
+    name: Review Pull Request
+    description: Structured code review on PRs and commits.
+    intents: [code-review, review-pr, pr_opened]
+    conversation_kinds: [review, build]
+    after_agents: []
+    verdict_field: review_result
+    format: structured-markdown
+-->
+```
+
+All fields are optional. Omitted fields are left empty in the proposal.
+The block is opt-in; agents without it continue to work via heuristic extraction.
 
 ### Why rate-limit?
 
@@ -143,16 +169,16 @@ sequencing against the registered `after_agents` in the live registry. Emits a
 ```yaml
 schema_version: 1
 source: usage-inference
-agent_name: peaches
+agent_name: reviewer
 drift_reports:
-  - actor: peaches
-    next_actor: naomi
+  - actor: reviewer
+    next_actor: merge-gate
     conversation_kind: code-review
     observed_count: 47
     registered_after_seq: false
 notes:
   - "Drift detected over rolling window: 1h0m0s"
-  - "Observed 1 unregistered sequencing pattern(s) for actor \"peaches\""
+  - "Observed 1 unregistered sequencing pattern(s) for actor \"reviewer\""
 ```
 
 ---

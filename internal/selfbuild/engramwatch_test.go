@@ -16,8 +16,8 @@ var engramFixtureEvents = []selfbuild.EngramEvent{
 		ID:        "ev-001",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/crew-manifest/amos/SKILL.md",
-		Agent:     "amos",
+		FilePath:  "/workspace/agents/builder/SKILL.md",
+		Agent:     "builder",
 		Diff: `--- a/SKILL.md
 +++ b/SKILL.md
 @@ -1,3 +1,6 @@
@@ -26,21 +26,21 @@ var engramFixtureEvents = []selfbuild.EngramEvent{
 +
 +## Capability: code-builder
 +Returns structured-markdown with implementation notes
- # AMoS`,
+ # Builder Agent`,
 	},
 	{
 		ID:        "ev-002",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/crew-manifest/amos/README.md", // not a SKILL.md / AGENT.md
-		Agent:     "amos",
+		FilePath:  "/workspace/agents/builder/README.md", // not a SKILL.md / AGENT.md
+		Agent:     "builder",
 		Diff:      "+some readme change",
 	},
 	{
 		ID:        "ev-003",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/project-agents/miller/AGENT.md",
+		FilePath:  "/workspace/agents/diagnostician/AGENT.md",
 		// Agent field empty — should be extracted from path.
 		Diff: `+## Trigger
 +intent: diagnose-failure
@@ -64,7 +64,7 @@ func TestEngramWatcher_ProcessEvents(t *testing.T) {
 		t.Fatalf("ProcessEvents: %v", err)
 	}
 
-	// Two agent-def files: amos (SKILL.md) and miller (AGENT.md). README.md skipped.
+	// Two agent-def files: builder (SKILL.md) and diagnostician (AGENT.md). README.md skipped.
 	if len(written) != 2 {
 		t.Fatalf("len(written) = %d, want 2", len(written))
 	}
@@ -132,8 +132,8 @@ func TestEngramWatcher_RateLimit(t *testing.T) {
 	})
 
 	sameAgentEvents := []selfbuild.EngramEvent{
-		{ID: "a", FilePath: "/workspace/crew-manifest/amos/SKILL.md", Agent: "amos", Diff: "+trigger: build"},
-		{ID: "b", FilePath: "/workspace/crew-manifest/amos/SKILL.md", Agent: "amos", Diff: "+trigger: review"},
+		{ID: "a", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: build"},
+		{ID: "b", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: review"},
 	}
 
 	written, err := w.ProcessEvents(sameAgentEvents)
@@ -154,7 +154,7 @@ func TestEngramWatcher_NoDirectRegistryWrite(t *testing.T) {
 	})
 
 	events := []selfbuild.EngramEvent{
-		{ID: "x", FilePath: "/workspace/crew-manifest/naomi/SKILL.md", Agent: "naomi", Diff: "+trigger: merge-pr"},
+		{ID: "x", FilePath: "/workspace/agents/merge-gate/SKILL.md", Agent: "merge-gate", Diff: "+trigger: merge-pr"},
 	}
 	_, err := w.ProcessEvents(events)
 	if err != nil {

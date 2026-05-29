@@ -129,6 +129,7 @@ func main() {
 	var (
 		registrySource     = flag.String("registry-source", "", "Backend type: file|git (required)")
 		registryDir        = flag.String("registry-dir", "", "Directory containing agent YAML files (when source=file)")
+		vocabularyExt      = flag.String("vocabulary-extensions", "", "Path to a YAML file of additional vocabulary values to merge into the base enums (optional)")
 		registryGitURL     = flag.String("registry-git-url", "", "Git repo URL (when source=git)")
 		registryGitRef     = flag.String("registry-git-ref", "main", "Git ref to track (when source=git)")
 		registryGitPoll    = flag.Duration("registry-git-poll", 60*time.Second, "Poll interval (when source=git)")
@@ -173,6 +174,21 @@ func main() {
 		slog.Info("clagentic-directory starting", "revision", "embedded-vcs-or-unknown")
 	}
 
+	// Load optional vocabulary extensions before constructing the store.
+	ext, err := store.LoadVocabularyExtensions(*vocabularyExt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if *vocabularyExt != "" {
+		slog.Info("vocabulary extensions loaded", "path", *vocabularyExt,
+			"intents", len(ext.Intents),
+			"conversation_kinds", len(ext.ConversationKinds),
+			"trust_labels", len(ext.TrustLabels),
+			"formats", len(ext.Formats),
+		)
+	}
+
 	var s store.Store
 	switch *registrySource {
 	case "file":
@@ -180,7 +196,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --registry-dir is required when --registry-source=file")
 			os.Exit(1)
 		}
-		fs, err := store.NewFileStore(*registryDir)
+		fs, err := store.NewFileStore(*registryDir, ext)
 		if err != nil {
 			slog.Error("failed to open file store", "err", err)
 			os.Exit(1)
@@ -199,6 +215,7 @@ func main() {
 			Subpath:  *registryGitSubpath,
 			KeyFile:  *registrySecretKey,
 			Poll:     *registryGitPoll,
+			Ext:      ext,
 		})
 		if err != nil {
 			slog.Error("failed to open git store", "err", err)

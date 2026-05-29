@@ -33,7 +33,7 @@ trust_labels: [trusted]
 		t.Fatal(err)
 	}
 
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestFileStoreMultipleAgents(t *testing.T) {
 	writeAgent("merger", "merger.yaml", []string{"build", "deploy"})
 	writeAgent("researcher", "researcher.yaml", []string{"research"})
 
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestFileStoreReload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatal(err)
 	}

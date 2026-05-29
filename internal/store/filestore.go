@@ -120,10 +120,9 @@ var v2ValidTrustLabels = map[string]bool{
 	"observe":            true,
 	"escalation-surface": true,
 	"dispatch-authority": true,
-	// Agent character labels from clagentic-config canonical agents
+	// Agent character labels
 	"trusted":            true,
 	"autonomous":         true,
-	"lore-writer":        true,
 	"high-stakes":        true,
 	"release-authorized": true,
 	// Model / source origin labels
@@ -141,12 +140,10 @@ var v2ValidFormats = map[string]bool{
 	"structured-markdown":  true,
 	"url":                  true,
 	"text":                 true,
-	// Additional formats from clagentic-config canonical agents
-	"agent-result-json":    true,
+	// Additional formats
+	"agent-result-json":     true,
 	"verbatim-model-output": true,
-	"lore-tome":            true,
-	"lore-tasks":           true,
-	"plaintext":            true,
+	"plaintext":             true,
 }
 
 // FileStore implements Store by reading YAML agent entries from a directory.
@@ -159,7 +156,10 @@ type FileStore struct {
 
 // NewFileStore creates a FileStore rooted at dir and does an initial load.
 // It starts an inotify watcher for hot-reload in the background.
-func NewFileStore(dir string) (*FileStore, error) {
+// ext is merged into the base vocabulary before the first load; pass a zero
+// VocabularyExtensions if no extensions are needed.
+func NewFileStore(dir string, ext VocabularyExtensions) (*FileStore, error) {
+	applyExtensions(ext)
 	fs := &FileStore{
 		dir:    dir,
 		agents: make(map[string]Agent),

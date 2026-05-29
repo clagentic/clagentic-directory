@@ -41,7 +41,7 @@ func TestV2ValidEntryLoads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "test-agent.yaml"), []byte(v2ValidYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("expected clean load, got error: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestV2InvalidIntentFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bad-agent.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir)
+	_, err := NewFileStore(dir, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown intent, got nil")
 	}
@@ -82,7 +82,7 @@ func TestV2InvalidConversationKindFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bad-kind.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir)
+	_, err := NewFileStore(dir, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown conversation_kind, got nil")
 	}
@@ -103,7 +103,7 @@ func TestV2InvalidTrustLabelFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bad-trust.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir)
+	_, err := NewFileStore(dir, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown trust_label, got nil")
 	}
@@ -122,7 +122,7 @@ func TestV2MissingReturnsVerdictFieldFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "no-verdict.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir)
+	_, err := NewFileStore(dir, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for missing returns.verdict_field, got nil")
 	}
@@ -166,7 +166,7 @@ trust_labels:
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(orig)
 
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("v1 entry must load without error; got: %v", err)
 	}
@@ -254,7 +254,7 @@ trust_labels:
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(orig)
 
-	fs, err := NewFileStore(dir)
+	fs, err := NewFileStore(dir, VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("mixed v1+v2 store must load without error; got: %v", err)
 	}

@@ -33,10 +33,14 @@ type GitStoreConfig struct {
 	Subpath  string        // subdirectory within repo for registry files
 	KeyFile  string        // SSH deploy key or HTTPS token file (optional)
 	Poll     time.Duration // default: 60s
+	// Ext holds optional vocabulary extensions to merge into the base enums
+	// before the first registry load.
+	Ext VocabularyExtensions
 }
 
 // NewGitStore clones the repo and starts the poll loop.
 func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
+	applyExtensions(cfg.Ext)
 	if cfg.Ref == "" {
 		cfg.Ref = "main"
 	}

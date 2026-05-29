@@ -4,9 +4,6 @@
 
 <h4 align="center">Agent capability registry for multi-agent platforms.</h4>
 
-<p align="center">
-  <a href="https://forgejo.akuehner.com/clagentic/clagentic-directory/releases"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
-</p>
 
 A self-hosted HTTP registry that stores agent capability declarations and answers routing queries:
 which agents handle a given intent, accept a conversation kind, or follow a specific agent in a
@@ -81,4 +78,4 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 
 ## License
 
-Apache 2.0
+TBD — licensing not yet decided. See lr-b24b.

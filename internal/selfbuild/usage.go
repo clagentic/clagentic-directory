@@ -248,7 +248,7 @@ func (u *UsageInference) emitDrift(result aggregateResult) ([]string, error) {
 		for _, r := range reports {
 			if r.ResearchFirstFlag {
 				notes = append(notes,
-					fmt.Sprintf("RESEARCH-FIRST: actor %q (lead/director) had no recorded lore search in the event window. Per workspace CLAUDE.md rule 8 + tome #453: existing engrams/tasks/tomes should be read before proposing fixes.", actor),
+					fmt.Sprintf("RESEARCH-FIRST: actor %q (lead/director) had no recorded prior-context search in the event window. Existing context should be consulted before proposing fixes.", actor),
 				)
 				break // one note per actor batch is sufficient
 			}

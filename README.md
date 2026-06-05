@@ -78,4 +78,4 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 
 ## License
 
-TBD — licensing not yet decided. See lr-b24b.
+FSL-1.1-MIT — Functional Source License, Version 1.1, MIT Future License. See [LICENSE](LICENSE).

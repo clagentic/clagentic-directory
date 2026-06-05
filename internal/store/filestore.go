@@ -389,7 +389,7 @@ func parseEntry(path string, data []byte) (Agent, error) {
 		// Transition-period: accept v1 entries with a deprecation warning.
 		// v1 entries expose the same fields as v2 to all API callers.
 		// TODO(lr-1745): remove v1 acceptance once fleet is fully migrated.
-		slog.Warn("agent entry uses schema_version 1; please migrate to v2; see lr-1745",
+		slog.Warn("agent entry uses schema_version 1; please migrate to v2",
 			"file", path)
 	case 2:
 		// v2 entries are validated strictly against the closed vocabulary.

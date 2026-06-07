@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -137,6 +138,7 @@ func main() {
 		registryCacheDir   = flag.String("registry-cache-dir", "/var/cache/clagentic-directory/registry", "Cache dir for git source")
 		registrySecretKey  = flag.String("registry-secret-keyfile", "", "SSH deploy key or HTTPS token file (when source=git)")
 		listen             = flag.String("listen", ":8444", "Listen address")
+		authToken          = flag.String("auth-token", "", "Bearer token required on all API routes except /healthz (optional; set CLAGENTIC_DIRECTORY_TOKEN env var instead of passing on command line)")
 		logLevel           = flag.String("log-level", "info", "Log level: debug|info|warn|error")
 
 		// Self-build: proposed_changes base dir (shared by all mechanisms).
@@ -248,6 +250,10 @@ func main() {
 	}
 
 	if *selfBuildEngramWatchURL != "" {
+		if err := validateSelfBuildURL(*selfBuildEngramWatchURL, "engram-watch"); err != nil {
+			slog.Error("self-build: invalid engram-watch URL", "err", err)
+			os.Exit(1)
+		}
 		slog.Info("self-build: engram-watch enabled", "url", *selfBuildEngramWatchURL)
 		w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
 			LOREURL:      *selfBuildEngramWatchURL,
@@ -259,6 +265,10 @@ func main() {
 	}
 
 	if *selfBuildUsageRelayURL != "" {
+		if err := validateSelfBuildURL(*selfBuildUsageRelayURL, "usage-relay"); err != nil {
+			slog.Error("self-build: invalid usage-relay URL", "err", err)
+			os.Exit(1)
+		}
 		slog.Info("self-build: usage-inference enabled", "relay", *selfBuildUsageRelayURL, "window", *selfBuildUsageWindow)
 		adapter := &storeSequencingAdapter{s: s}
 		u := selfbuild.NewUsageInference(selfbuild.UsageConfig{
@@ -270,15 +280,42 @@ func main() {
 		go u.Run(ctx)
 	}
 
-	h := api.New(s)
+	// Auth token: flag takes precedence, then environment variable.
+	token := *authToken
+	if token == "" {
+		token = os.Getenv("CLAGENTIC_DIRECTORY_TOKEN")
+	}
+	if token == "" {
+		slog.Warn("no auth token configured — API is unauthenticated; set --auth-token or CLAGENTIC_DIRECTORY_TOKEN")
+	}
+
+	h := api.New(s, token)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	slog.Info("clagentic-directory listening", "addr", *listen)
+	slog.Info("clagentic-directory listening", "addr", *listen, "auth", token != "")
 	if err := http.ListenAndServe(*listen, mux); err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}
+}
+
+// validateSelfBuildURL parses the URL and rejects obviously invalid values.
+// It does not restrict which hosts are allowed — operators choose their own
+// LORE/Relay endpoints — but it ensures the URL is at least syntactically valid
+// and uses http or https, preventing accidental file:// or other scheme abuse.
+func validateSelfBuildURL(raw, mechanism string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s URL parse error: %w", mechanism, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%s URL has unsupported scheme %q (must be http or https)", mechanism, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%s URL has no host", mechanism)
+	}
+	return nil
 }
 
 // storeSequencingAdapter adapts store.Store to selfbuild.StoreReader.

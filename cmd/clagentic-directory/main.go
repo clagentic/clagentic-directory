@@ -70,6 +70,10 @@ func runInspect(args []string) int {
 		fmt.Fprintln(os.Stderr, "inspect: --mcp-url is required")
 		return 1
 	}
+	if err := validateSelfBuildURL(*mcpURL, "inspect --mcp-url"); err != nil {
+		fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
+		return 1
+	}
 
 	// Resolve config path.
 	cfgPath := *configPath

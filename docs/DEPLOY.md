@@ -108,6 +108,32 @@ Run with git source:
 
 The service clones once at startup and re-fetches on the poll interval. The local cache survives restarts; a restart with the cache present skips the initial clone.
 
+### Key rotation
+
+The deploy key is long-lived and stored plaintext on disk. Rotate it periodically or
+on any suspected compromise:
+
+```bash
+# 1. Generate a new key
+ssh-keygen -t ed25519 -f /etc/clagentic/registry-deploy-key-new -N ""
+
+# 2. Add the new public key to your git host as a read-only deploy key
+#    (do this BEFORE removing the old key — avoids downtime)
+
+# 3. Replace the key file
+mv /etc/clagentic/registry-deploy-key-new /etc/clagentic/registry-deploy-key
+mv /etc/clagentic/registry-deploy-key-new.pub /etc/clagentic/registry-deploy-key.pub
+
+# 4. Restart the service (it re-reads the key file on startup)
+systemctl restart clagentic-directory
+
+# 5. Remove the old public key from your git host
+```
+
+Keep the key file mode `0600` and owned by the service user. The cache directory
+(`--registry-cache-dir`) should be `0700` for the same user — the service enforces
+this on first creation, but verify after manual interventions.
+
 ---
 
 ## Vocabulary extensions

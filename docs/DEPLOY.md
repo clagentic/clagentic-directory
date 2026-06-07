@@ -36,13 +36,14 @@ After=network.target
 [Service]
 Type=simple
 User=clagentic
+SyslogIdentifier=clagentic-directory
 ExecStart=/usr/local/bin/clagentic-directory \
   --registry-source file \
   --registry-dir /etc/clagentic/registry \
-  --listen :8444 \
-  --log-level info
+  --listen :8444
 Restart=on-failure
 RestartSec=5s
+EnvironmentFile=-/etc/clagentic/directory/env
 
 [Install]
 WantedBy=multi-user.target

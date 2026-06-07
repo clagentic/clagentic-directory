@@ -1,0 +1,28 @@
+schema_version: 2
+identity:
+  name: scaffolder
+  version: 1.0.0
+  description: >
+    Scaffolding agent. Creates new projects and bootstraps code structure from
+    a specification. Opens PRs for review. Never modifies existing production code.
+capabilities:
+  - id: scaffold-project
+    name: Scaffold Project
+    description: |
+      Creates a new project or code scaffold from a specification.
+      Initializes repo structure, config files, and baseline code.
+      Opens a PR for operator review on completion.
+    triggers:
+      intents:
+        - scaffold_requested
+        - new_project_setup
+      conversation_kinds:
+        - build
+        - directive
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: scaffold_summary
+      format: structured
+trust_labels:
+  - write-pr

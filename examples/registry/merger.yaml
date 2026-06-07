@@ -1,0 +1,28 @@
+schema_version: 2
+identity:
+  name: merger
+  version: 1.0.0
+  description: Release gate that merges pull requests after pre-merge checks pass.
+capabilities:
+  - id: merge-pr
+    name: Merge Pull Request
+    description: |
+      Runs pre-merge checks and merges a PR on green. Refuses on red.
+      One action per invocation (merge_pr | push_main | tag_release | cut_release).
+    triggers:
+      intents:
+        - merge-pr
+        - release
+        - tag-release
+      conversation_kinds:
+        - review
+        - deploy
+      after_roles:
+        - reviewer
+      after_agents:
+        - reviewer
+    returns:
+      verdict_field: merge_result
+      format: json
+trust_labels:
+  - merge-gate

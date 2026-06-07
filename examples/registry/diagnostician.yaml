@@ -1,0 +1,28 @@
+schema_version: 2
+identity:
+  name: diagnostician
+  version: 1.0.0
+  description: >
+    Diagnostic specialist. Investigates failures, root-causes unknown errors,
+    and produces structured diagnosis reports. Read-only; never makes changes.
+capabilities:
+  - id: diagnose
+    name: Diagnose Failure
+    description: |
+      Investigates a failure or unknown root cause and emits a structured
+      diagnosis report with findings, evidence, and a recommended next action.
+    triggers:
+      intents:
+        - diagnostic_requested
+        - root_cause_unknown
+        - escalation_diagnosis
+      conversation_kinds:
+        - consult
+        - escalation
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: diagnosis_result
+      format: structured
+trust_labels:
+  - read-only

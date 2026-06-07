@@ -1,0 +1,13 @@
+# Built binaries (root-level only, not the cmd/ source directory)
+/clagentic-directory
+/clagentic-directory-test
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Playwright MCP session artifacts
+.playwright-mcp/

@@ -1,0 +1,241 @@
+$id: https://clagentic.ai/schemas/vocabulary/v1.yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Vocabulary
+description: |
+  Per-deployment vocabulary for clagentic-directory.
+  This file is the canonical list used by agent-entry.v2.yaml for enum validation.
+  Vocabulary grows monotonically — add entries here before adding them to any agent YAML.
+  See docs/VOCABULARY.md for human-readable semantics for each entry.
+
+type: object
+additionalProperties: true
+properties:
+  intents:
+    type: object
+    description: Map of intent name to description.
+    additionalProperties:
+      type: string
+    # Canonical intent list (used by agent-entry.v2.yaml enum).
+    # New intents: add here first, then update the v2 schema enum, then use in agent YAMLs.
+    x-canonical-values:
+      # Code work
+      - code_work_requested
+      - code-generation
+      - implement-task
+      # Code review
+      - pr_opened
+      - code_ready_for_review
+      - code-review
+      - review-pr
+      - review-commit
+      # Merge / release
+      - merge_requested
+      - merge-pr
+      - release
+      - tag-release
+      # Diagnosis
+      - diagnostic_requested
+      - root_cause_unknown
+      - escalation_diagnosis
+      # Ops
+      - deploy_requested
+      - runbook_run
+      - ops_check
+      # Research
+      - research_requested
+      - survey_requested
+      - research
+      - investigate
+      - find-information
+      # Web research
+      - web-research
+      - web-search
+      - url-fetch
+      - fact-lookup
+      - doc-lookup
+      - large-context-analysis
+      - codebase-survey
+      - community-sentiment
+      - reddit-research
+      - user-opinion-research
+      # Analysis & review
+      - deep-analysis
+      - architecture-review
+      - security-review
+      - tradeoff-evaluation
+      - second-opinion
+      # Model delegation
+      - delegate-to-codex
+      - codex-review
+      - gpt-reasoning
+      - local-inference
+      - cheap-inference
+      - offline-inference
+      - embeddings
+      # Intelligence harvesting
+      - inspect-repo
+      - harvest-intelligence
+      - ingest-candidate
+      # Scaffolding
+      - scaffold_requested
+      - new_project_setup
+      # Testing & probing
+      - probe
+      - wiring-test
+      # Routing / escalation
+      - escalation
+      - portfolio_question
+      - dispatch_routing
+  conversation_kinds:
+    type: object
+    description: Map of conversation kind to description.
+    additionalProperties:
+      type: string
+    x-canonical-values:
+      - build
+      - consult
+      - smoke
+      - gate
+      - research
+      - review
+      - deploy
+      - planning
+      - directive
+      - escalation
+      - coordination
+      # Additional kinds
+      - advisory
+      - code-generation
+      - classification
+      - summarization
+      - design
+      - test
+  trust_labels:
+    type: object
+    description: Map of trust label to description.
+    additionalProperties:
+      type: string
+    x-canonical-values:
+      # Write / gate labels
+      - read-only
+      - write-pr
+      - write-ops
+      - merge-gate
+      - publish
+      # Routing / authority labels
+      - observe
+      - escalation-surface
+      - dispatch-authority
+      # Agent character labels
+      - trusted
+      - autonomous
+      - high-stakes
+      - release-authorized
+      # Model / source origin labels
+      - external-model
+      - external-source
+      - local-model
+      # Lifecycle labels
+      - test-only
+  format:
+    type: object
+    description: Map of return format hint to description.
+    additionalProperties:
+      type: string
+    x-canonical-values:
+      - json
+      - structured
+      - structured-markdown
+      - url
+      - text
+      # Additional formats
+      - agent-result-json
+      - verbatim-model-output
+      - plaintext
+
+# Inline definitions for reference by schema tooling
+definitions:
+  intents:
+    code_work_requested: "Agent is requested to perform a code change task."
+    code-generation: "Agent is requested to generate code from a specification."
+    implement-task: "Agent is requested to implement a described task end-to-end."
+    pr_opened: "A pull request has been opened and is ready for downstream handling."
+    code_ready_for_review: "Code is ready for structured review."
+    code-review: "Agent is requested to review code changes."
+    review-pr: "Agent is requested to review a specific pull request."
+    review-commit: "Agent is requested to review a specific commit."
+    merge_requested: "A merge of an approved PR has been requested."
+    merge-pr: "Agent is requested to merge a pull request."
+    release: "A release action has been requested."
+    tag-release: "A tag-and-release action has been requested."
+    diagnostic_requested: "A diagnostic investigation has been requested."
+    root_cause_unknown: "Root cause of a failure is unknown; analysis requested."
+    escalation_diagnosis: "A diagnostic investigation escalated to this agent."
+    deploy_requested: "A deployment action has been requested."
+    runbook_run: "A runbook execution has been requested."
+    ops_check: "An operational health check has been requested."
+    research_requested: "A research task has been requested."
+    survey_requested: "A survey of a topic has been requested."
+    research: "General research capability trigger."
+    investigate: "Agent is requested to investigate a topic."
+    find-information: "Agent is requested to find specific information."
+    scaffold_requested: "A project or code scaffolding task has been requested."
+    new_project_setup: "A new project setup task has been requested."
+    # Testing & probing
+    probe: "Send a probe to verify agent wiring or routing configuration."
+    wiring-test: "Test that named-agent routing resolves correctly end-to-end."
+    # Routing / escalation
+    escalation: "An issue has been escalated for routing or decision."
+    portfolio_question: "A question about the agent portfolio or dispatch routing."
+    dispatch_routing: "A routing or dispatch decision is needed."
+    # Web research
+    web-research: "Fetch and synthesize information from web pages or search results."
+    web-search: "Run a web search query and return results."
+    url-fetch: "Retrieve and summarize the content of a specific URL."
+    fact-lookup: "Look up a specific fact, version, or configuration detail."
+    doc-lookup: "Check official documentation for a known library, API, or tool."
+    large-context-analysis: "Analyze content requiring more than 100K tokens of context."
+    codebase-survey: "Read and summarize a large codebase in one pass."
+    community-sentiment: "Research what online communities think about a topic."
+    reddit-research: "Search Reddit subreddits and synthesize community opinion."
+    user-opinion-research: "Gather user perspectives from online forums or communities."
+    # Analysis & review
+    deep-analysis: "Apply extended reasoning to a complex, ambiguous, or high-stakes problem."
+    architecture-review: "Evaluate a system design or architectural decision."
+    security-review: "Analyze code or design for security vulnerabilities or privacy risks."
+    tradeoff-evaluation: "Weigh competing options and recommend a course of action."
+    second-opinion: "Get an independent evaluation of a design, plan, or code change."
+    # Model delegation
+    delegate-to-codex: "Route a task to the OpenAI Codex CLI for GPT-family execution."
+    codex-review: "Request an adversarial or second-opinion code review from Codex."
+    gpt-reasoning: "Apply GPT-5.x reasoning to a task for cross-provider verification."
+    local-inference: "Run inference on locally-hosted models."
+    cheap-inference: "Execute a task using low-cost local models when quality requirements are modest."
+    offline-inference: "Run inference without calling external APIs."
+    embeddings: "Generate vector embeddings for semantic search or RAG pipelines."
+    # Intelligence harvesting
+    inspect-repo: "Run a Stage 1 Tiamut inspection on a repository advisory."
+    harvest-intelligence: "Extract high-signal findings from a repository for potential ingestion."
+    ingest-candidate: "Run a Stage 2 Tiamut ingest on a user-approved advisory."
+  trust_labels:
+    # Write / gate labels
+    read-only: "Agent may read data but may not write, merge, or publish."
+    write-pr: "Agent may open pull requests and push to feature branches."
+    write-ops: "Agent may execute runbooks and ops-side write operations."
+    merge-gate: "Agent is authorized to merge pull requests."
+    publish: "Agent is authorized to publish artifacts or releases."
+    # Routing / authority labels
+    observe: "Agent observes events but takes no autonomous action."
+    escalation-surface: "Agent is the escalation surface; humans and agents route unresolved issues here."
+    dispatch-authority: "Agent has authority to dispatch and route to other agents."
+    # Agent character labels
+    trusted: "Agent operates within established role boundaries."
+    autonomous: "Agent may act without per-action user confirmation within its defined scope."
+    high-stakes: "Agent is used for decisions with significant or hard-to-reverse consequences."
+    release-authorized: "Agent is authorized to perform release-gate actions (merge, tag, push)."
+    # Model / source origin labels
+    external-model: "Agent delegates execution to a non-Claude model or API."
+    external-source: "Agent fetches information from external web sources."
+    local-model: "Agent uses locally-hosted models rather than cloud APIs."
+    # Lifecycle labels
+    test-only: "Agent is for verification and testing purposes only; not for production use."

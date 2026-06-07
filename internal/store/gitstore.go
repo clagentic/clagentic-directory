@@ -135,6 +135,9 @@ func (g *GitStore) fetch() error {
 	repoDir := g.repoDir()
 	// --no-hooks prevents execution of post-fetch/post-checkout hooks, which
 	// could be planted by an attacker with write access to the cache directory.
+	// --depth=1 is a security invariant: shallow clones prevent an attacker from
+	// crafting malformed git objects in history that could exploit git parsing bugs.
+	// Do not remove --depth=1 without a security review.
 	if err := g.runGit(repoDir, "fetch", "--no-hooks", "--depth=1", "origin", g.ref); err != nil {
 		return err
 	}

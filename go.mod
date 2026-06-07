@@ -1,4 +1,4 @@
-module forgejo.akuehner.com/clagentic/clagentic-directory
+module github.com/clagentic/clagentic-directory
 
 go 1.25.0
 

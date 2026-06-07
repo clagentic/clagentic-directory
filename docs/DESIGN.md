@@ -55,7 +55,7 @@ All responses are `application/json`. No authentication at the API layer in the 
 `client/go/client.go` provides a typed HTTP client for the above API surface. Import path:
 
 ```
-forgejo.akuehner.com/clagentic/clagentic-directory/client/go
+github.com/clagentic/clagentic-directory/client/go
 ```
 
 The client has a 10-second default timeout and exposes typed methods matching each query endpoint.

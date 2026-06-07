@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/store"
+	"github.com/clagentic/clagentic-directory/internal/store"
 )
 
 // Handler holds all HTTP handlers for the directory API.

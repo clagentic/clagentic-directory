@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/selfbuild"
+	"github.com/clagentic/clagentic-directory/internal/selfbuild"
 	"gopkg.in/yaml.v3"
 )
 

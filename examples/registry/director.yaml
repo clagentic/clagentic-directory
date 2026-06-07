@@ -1,0 +1,31 @@
+schema_version: 2
+identity:
+  name: director
+  version: 1.0.0
+  description: >
+    Escalation surface and portfolio router. Receives escalations from agents
+    and operators, makes dispatch routing decisions, and coordinates cross-agent
+    workflow. Does not write code or merge PRs.
+capabilities:
+  - id: route-escalation
+    name: Route Escalation
+    description: |
+      Receives an escalation and routes it to the appropriate agent or operator.
+      Makes dispatch decisions for ambiguous or blocked work items.
+    triggers:
+      intents:
+        - escalation
+        - portfolio_question
+        - dispatch_routing
+      conversation_kinds:
+        - escalation
+        - coordination
+        - directive
+      after_roles: []
+      after_agents: []
+    returns:
+      verdict_field: director_decision
+      format: structured
+trust_labels:
+  - escalation-surface
+  - dispatch-authority

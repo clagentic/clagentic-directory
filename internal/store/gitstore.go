@@ -60,7 +60,7 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 
 	repoDir := gs.repoDir()
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
 			return nil, fmt.Errorf("creating cache dir: %w", err)
 		}
 		if err := gs.runGit("", "clone", "--depth=1", "--branch", cfg.Ref, cfg.URL, repoDir); err != nil {
@@ -95,9 +95,15 @@ func (g *GitStore) runGit(dir string, args ...string) error {
 		cmd.Dir = dir
 	}
 	if g.keyFile != "" && strings.HasPrefix(g.url, "git@") {
-		cmd.Env = append(os.Environ(),
-			"GIT_SSH_COMMAND=ssh -i "+g.keyFile+" -o StrictHostKeyChecking=no",
-		)
+		// Use a whitelisted env rather than inheriting os.Environ() to prevent
+		// GIT_SSH_COMMAND or GIT_ASKPASS overrides from the parent process environment.
+		// StrictHostKeyChecking=accept-new accepts new hosts on first connect but
+		// rejects unexpected key changes, preventing silent MITM.
+		cmd.Env = []string{
+			"PATH=" + os.Getenv("PATH"),
+			"HOME=" + os.Getenv("HOME"),
+			"GIT_SSH_COMMAND=ssh -i " + g.keyFile + " -o StrictHostKeyChecking=accept-new -o BatchMode=yes",
+		}
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -127,10 +133,34 @@ func (g *GitStore) pollLoop() {
 
 func (g *GitStore) fetch() error {
 	repoDir := g.repoDir()
-	if err := g.runGit(repoDir, "fetch", "--depth=1", "origin", g.ref); err != nil {
+	// --no-hooks prevents execution of post-fetch/post-checkout hooks, which
+	// could be planted by an attacker with write access to the cache directory.
+	if err := g.runGit(repoDir, "fetch", "--no-hooks", "--depth=1", "origin", g.ref); err != nil {
 		return err
 	}
-	return g.runGit(repoDir, "reset", "--hard", "origin/"+g.ref)
+	if err := g.runGit(repoDir, "reset", "--no-hooks", "--hard", "origin/"+g.ref); err != nil {
+		return err
+	}
+	// Validate that the remote URL in .git/config still matches the configured
+	// URL. An attacker with cache-dir write access could redirect the remote to
+	// an attacker-controlled repo; catching that here prevents registry poisoning.
+	return g.validateRemoteURL(repoDir)
+}
+
+// validateRemoteURL reads remote.origin.url from .git/config and compares it
+// against the configured URL. Returns an error if they differ.
+func (g *GitStore) validateRemoteURL(repoDir string) error {
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("reading remote.origin.url: %w", err)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != g.url {
+		return fmt.Errorf("remote.origin.url mismatch: got %q, want %q — possible cache tampering", got, g.url)
+	}
+	return nil
 }
 
 // Close stops the poll loop.

@@ -378,7 +378,14 @@ func loadDir(dir string) (map[string]Agent, error) {
 	return agents, nil
 }
 
+// maxYAMLSize is the maximum allowed size for a single agent YAML entry.
+// This guards against yaml.v3 alias-bomb and deeply-nested DOS attacks.
+const maxYAMLSize = 1 << 20 // 1 MiB
+
 func parseEntry(path string, data []byte) (Agent, error) {
+	if len(data) > maxYAMLSize {
+		return Agent{}, fmt.Errorf("%s: YAML entry too large (%d bytes, max %d)", path, len(data), maxYAMLSize)
+	}
 	var raw rawEntry
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return Agent{}, fmt.Errorf("parsing %s: %w", path, err)
@@ -389,7 +396,7 @@ func parseEntry(path string, data []byte) (Agent, error) {
 		// Transition-period: accept v1 entries with a deprecation warning.
 		// v1 entries expose the same fields as v2 to all API callers.
 		// TODO(lr-1745): remove v1 acceptance once fleet is fully migrated.
-		slog.Warn("agent entry uses schema_version 1; please migrate to v2",
+		slog.Warn("agent entry uses schema_version 1; please migrate to v2 (lr-1745)",
 			"file", path)
 	case 2:
 		// v2 entries are validated strictly against the closed vocabulary.

@@ -11,22 +11,41 @@ import (
 
 // Handler holds all HTTP handlers for the directory API.
 type Handler struct {
-	store store.Store
+	store     store.Store
+	authToken string // empty = no authentication required
 }
 
 // New returns a new Handler wired to the given store.
-func New(s store.Store) *Handler {
-	return &Handler{store: s}
+// authToken is optional: when non-empty, all routes except /healthz require
+// Authorization: Bearer <authToken>.
+func New(s store.Store, authToken string) *Handler {
+	return &Handler{store: s, authToken: authToken}
+}
+
+// requireAuth wraps h with bearer token enforcement.
+// /healthz is always exempt — load balancers probe it without credentials.
+func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	if h.authToken == "" {
+		return next // auth disabled
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if bearer != h.authToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
 
 // Register registers all routes on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/agents", h.listAgents)
-	mux.HandleFunc("GET /v1/agents/{name}", h.getAgent)
-	mux.HandleFunc("GET /v1/find", h.find)
-	mux.HandleFunc("GET /healthz", h.healthz)
-	mux.HandleFunc("GET /readyz", h.readyz)
-	mux.HandleFunc("GET /.well-known/agent-card.json/{name}", h.agentCard)
+	mux.HandleFunc("GET /v1/agents", h.requireAuth(h.listAgents))
+	mux.HandleFunc("GET /v1/agents/{name}", h.requireAuth(h.getAgent))
+	mux.HandleFunc("GET /v1/find", h.requireAuth(h.find))
+	mux.HandleFunc("GET /healthz", h.healthz) // always unauthenticated
+	mux.HandleFunc("GET /readyz", h.requireAuth(h.readyz))
+	mux.HandleFunc("GET /.well-known/agent-card.json/{name}", h.requireAuth(h.agentCard))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

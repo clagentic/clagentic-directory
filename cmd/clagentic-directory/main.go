@@ -13,9 +13,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/api"
-	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/selfbuild"
-	"forgejo.akuehner.com/clagentic/clagentic-directory/internal/store"
+	"github.com/clagentic/clagentic-directory/internal/api"
+	"github.com/clagentic/clagentic-directory/internal/selfbuild"
+	"github.com/clagentic/clagentic-directory/internal/store"
 )
 
 // buildRevision is injected by the binary-rebuild script via -ldflags "-X main.buildRevision=<sha>".

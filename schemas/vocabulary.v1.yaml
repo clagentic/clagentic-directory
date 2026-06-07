@@ -1,4 +1,4 @@
-$id: https://clagentic.akuehner.com/schemas/vocabulary/v1.yaml
+$id: https://clagentic.ai/schemas/vocabulary/v1.yaml
 $schema: https://json-schema.org/draft/2020-12/schema
 title: Vocabulary
 description: |

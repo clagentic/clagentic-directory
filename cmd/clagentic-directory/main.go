@@ -162,6 +162,11 @@ func main() {
 	)
 	flag.Parse()
 
+	// CLAGENTIC_DIRECTORY_LOG_LEVEL overrides --log-level when set.
+	if envLevel := os.Getenv("CLAGENTIC_DIRECTORY_LOG_LEVEL"); envLevel != "" {
+		*logLevel = envLevel
+	}
+
 	level := slog.LevelInfo
 	switch *logLevel {
 	case "debug":

@@ -135,7 +135,7 @@ Used by `FindByConversationKind(kind)`.
 
 A trust label declares what actions an agent is authorized to take.
 Trust labels are not enforced by the registry itself — they are read by deployment
-policies and relay logic to gate authorization decisions.
+policies and routing logic to gate authorization decisions.
 
 | Label | Semantics | Typical agent roles |
 |-------|-----------|---------------------|

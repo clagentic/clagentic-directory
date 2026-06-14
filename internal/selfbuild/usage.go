@@ -37,7 +37,7 @@ type StoreEvent struct {
 	// search recorded in the conversation's agent_state ledger at the time
 	// this event was emitted. Nil/empty when no search was recorded.
 	// Populated when the event store API exposes it.
-	LastContextSearchAt string `json:"last_lore_search_at,omitempty"`
+	LastContextSearchAt string `json:"last_context_search_at,omitempty"`
 }
 
 // UsageInference pulls events from the event store, compares empirical

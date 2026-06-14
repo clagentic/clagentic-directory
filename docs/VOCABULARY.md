@@ -5,15 +5,36 @@ Canonical vocabulary for `schema_version: 2` agent entries in the clagentic-dire
 All values used in `capabilities[].triggers.intents`, `capabilities[].triggers.conversation_kinds`,
 `trust_labels`, and `capabilities[].returns.format` must come from this list.
 
-To add a new vocabulary item to the base vocabulary:
-1. Add it here with semantics.
-2. Add it to `schemas/vocabulary.v1.yaml` (`x-canonical-values` list + `definitions` block).
-3. Add it to the enum in `schemas/agent-entry.v2.yaml`.
-4. Add it to the appropriate `v2Valid*` map in `internal/store/filestore.go`.
+## Using a vocabulary file
+
+Pass `--vocab-file /path/to/vocabulary.v1.yaml` at startup to enable strict validation
+(ValidateStrict mode). When a vocab file is provided, `schema_version: 2` entries that
+use unknown vocabulary values fail to load and are excluded from the registry.
+
+When `--vocab-file` is omitted, the store starts in ValidateOpen mode: all vocabulary
+values are accepted without checking. ValidateOpen is intended for bootstrapping new
+deployments and should not be used in production.
+
+See `examples/vocabulary.v1.yaml` for a ready-to-use canonical vocabulary file.
+
+## Adding a new vocabulary item
+
+1. Add it here with semantics (this document).
+2. Add it to `examples/vocabulary.v1.yaml` (the canonical vocab file).
+3. Add it to `schemas/vocabulary.v1.yaml` (`x-canonical-values` list + `definitions` block).
+4. Add it to the enum in `schemas/agent-entry.v2.yaml`.
 5. Use it in agent YAML files.
 
-Platform-specific values (agents unique to your deployment) belong in a vocabulary extensions
-file. Pass it with `--vocabulary-extensions <path>`. See `examples/vocabulary-extensions.yaml`.
+## Platform-specific values
+
+Platform-specific values (agents unique to your deployment) should be added directly to
+your vocabulary file (`--vocab-file`). Do not add deployment-specific values to this document
+or the canonical `examples/vocabulary.v1.yaml`.
+
+The `--vocabulary-extensions` flag is deprecated. Migrate to `--vocab-file` instead.
+See `examples/vocabulary-extensions.yaml` for the old format reference.
+
+## Growth policy
 
 Vocabulary grows monotonically. Values are never removed from the enum once shipped —
 agents that used a removed value would silently break at `FindByCapability()` call sites.

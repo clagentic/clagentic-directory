@@ -123,6 +123,14 @@ func (f *FileStore) watchLoop() {
 // isRelevantEvent returns true for fsnotify events that should trigger a reload.
 // Events from the vocab file's parent directory are filtered to only the vocab
 // file path; all changes within the registry dir are treated as relevant.
+//
+// Why we watch the parent dir rather than the file directly: editors commonly
+// write via a temp file and then rename it over the target. A direct file watch
+// is lost when the original inode is replaced by rename/remove. Watching the
+// parent dir survives the rename; the re-add logic in watchLoop re-registers
+// the parent after Remove/Rename events so the watch persists across repeated
+// atomic saves. Create events for the new file are then caught and trigger a
+// reload via this function's vocab-file path filter.
 func (f *FileStore) isRelevantEvent(event fsnotify.Event) bool {
 	if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) &&
 		!event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {

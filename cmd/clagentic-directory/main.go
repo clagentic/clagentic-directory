@@ -190,7 +190,7 @@ func main() {
 	// Warn loudly when neither --vocab-file nor --vocabulary-extensions is set.
 	// The store will start in ValidateOpen mode, meaning any vocabulary value is accepted.
 	if *vocabFile == "" && *vocabularyExt == "" {
-		slog.Warn("no --vocab-file provided; starting in ValidateOpen mode — schema_version: 2 vocabulary values are not validated. Pass --vocab-file to enable strict checking.")
+		slog.Warn("no --vocab-file provided; starting in ValidateOpen mode (UNSAFE) — schema_version: 2 vocabulary values are not validated and any value is accepted. Pass --vocab-file to enable strict checking.")
 	}
 
 	// Load optional (deprecated) vocabulary extensions before constructing the store.

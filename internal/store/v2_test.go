@@ -11,6 +11,130 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// testVocabYAML is a minimal vocabulary.v1.yaml that covers the values used in
+// v2ValidYAML and all examples/registry/ entries. Tests that exercise strict
+// validation must call writeTestVocab(t) to obtain a vocab file path.
+const testVocabYAML = `schema_version: 1
+intents:
+  code_work_requested: "A code change task has been dispatched."
+  code-generation: "Code generation from a spec."
+  implement-task: "Implement a described task end-to-end."
+  pr_opened: "A pull request has been opened."
+  code_ready_for_review: "Code is ready for structured review."
+  code-review: "A general code review."
+  review-pr: "Review of a specific pull request."
+  review-commit: "Review of a specific commit."
+  merge_requested: "A merge has been requested."
+  merge-pr: "Merge a specific pull request."
+  release: "A release action has been requested."
+  tag-release: "Tag-and-release."
+  diagnostic_requested: "A diagnostic investigation."
+  root_cause_unknown: "Root cause is unknown."
+  escalation_diagnosis: "Diagnostic escalation."
+  deploy_requested: "A deployment has been requested."
+  runbook_run: "Execute a named runbook."
+  ops_check: "An operational health check."
+  research_requested: "A research task."
+  survey_requested: "A survey task."
+  research: "General research."
+  investigate: "Investigation of a topic."
+  find-information: "Find specific information."
+  scaffold_requested: "A scaffolding task."
+  new_project_setup: "New project setup."
+  escalation: "Escalation for routing."
+  portfolio_question: "Question about the agent portfolio."
+  dispatch_routing: "Routing decision needed."
+  web-research: "Fetch and synthesize from the web."
+  web-search: "Run a web search."
+  url-fetch: "Retrieve and summarize a URL."
+  fact-lookup: "Look up a specific fact."
+  doc-lookup: "Check official documentation."
+  large-context-analysis: "Analyze large-context content."
+  codebase-survey: "Read and summarize a large codebase."
+  community-sentiment: "Research community opinion."
+  reddit-research: "Search Reddit."
+  user-opinion-research: "Gather user perspectives."
+  deep-analysis: "Apply extended reasoning."
+  architecture-review: "Evaluate a system design."
+  security-review: "Analyze for security vulnerabilities."
+  tradeoff-evaluation: "Weigh competing options."
+  second-opinion: "Independent evaluation."
+  delegate-to-codex: "Route to OpenAI Codex CLI."
+  codex-review: "Adversarial review from Codex."
+  gpt-reasoning: "Apply GPT-5.x reasoning."
+  local-inference: "Run inference on local models."
+  cheap-inference: "Use low-cost local models."
+  offline-inference: "Run inference without external APIs."
+  embeddings: "Generate vector embeddings."
+  inspect-repo: "Inspect a repository advisory."
+  harvest-intelligence: "Extract high-signal findings."
+  ingest-candidate: "Run a user-approved ingest."
+  probe: "Send a probe to verify wiring."
+  wiring-test: "Test named-agent routing."
+conversation_kinds:
+  build: "A code-change workflow."
+  consult: "A consulting or advisory session."
+  smoke: "A lightweight smoke-test."
+  gate: "A gate check."
+  research: "A structured research session."
+  review: "A code review session."
+  deploy: "A deployment or release conversation."
+  planning: "A planning or design session."
+  directive: "An operator directive."
+  escalation: "An escalation session."
+  coordination: "A cross-agent coordination conversation."
+  advisory: "An advisory session."
+  code-generation: "A session whose primary output is generated code."
+  classification: "A classification session."
+  summarization: "A summarization session."
+  design: "A design-level session."
+  test: "A test or wiring-verification session."
+trust_labels:
+  read-only: "May read only."
+  write-pr: "May open pull requests."
+  write-ops: "May execute runbooks."
+  merge-authority: "May merge pull requests."
+  merge-gate: "Legacy alias of merge-authority."
+  publish: "May publish artifacts."
+  observe: "Observes events only."
+  escalation-surface: "Escalation surface."
+  dispatch-authority: "May dispatch to other agents."
+  trusted: "Within established role boundaries."
+  autonomous: "May act without per-action confirmation."
+  high-stakes: "High-stakes decisions."
+  external-model: "Delegates to a non-Claude model."
+  external-source: "Fetches from external web sources."
+  local-model: "Uses locally-hosted models."
+  test-only: "For testing purposes only."
+formats:
+  json: "Structured JSON object."
+  structured: "Structured object (YAML, JSON, or typed SDK envelope)."
+  structured-markdown: "Markdown document with structured sections."
+  url: "A URL string."
+  text: "Unstructured plain text."
+  agent-result-json: "JSON matching an agent_result envelope schema."
+  verbatim-model-output: "Raw output of a delegated model."
+  plaintext: "Simple unstructured text."
+`
+
+// writeTestVocab writes testVocabYAML to a temp file and returns its path.
+// Tests that exercise strict vocabulary validation must call this.
+func writeTestVocab(t *testing.T) string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "vocabulary.v1.*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(testVocabYAML); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return f.Name()
+}
+
 // v2ValidYAML is a minimal valid schema_version: 2 agent entry.
 const v2ValidYAML = `schema_version: 2
 identity:
@@ -41,7 +165,8 @@ func TestV2ValidEntryLoads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "test-agent.yaml"), []byte(v2ValidYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	fs, err := NewFileStore(dir, VocabularyExtensions{})
+	vocabPath := writeTestVocab(t)
+	fs, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("expected clean load, got error: %v", err)
 	}
@@ -56,6 +181,25 @@ func TestV2ValidEntryLoads(t *testing.T) {
 	}
 }
 
+// TestV2ValidateOpenAcceptsAnyValue verifies that without a vocab file (ValidateOpen),
+// schema_version: 2 entries with unknown vocabulary values still load.
+func TestV2ValidateOpenAcceptsAnyValue(t *testing.T) {
+	dir := t.TempDir()
+	openYAML := strings.ReplaceAll(v2ValidYAML, "code_work_requested", "not_a_real_intent_but_open_mode")
+	if err := os.WriteFile(filepath.Join(dir, "test-agent.yaml"), []byte(openYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// No vocab file: ValidateOpen mode — all values accepted.
+	fs, err := NewFileStore(dir, "", VocabularyExtensions{})
+	if err != nil {
+		t.Fatalf("ValidateOpen mode should accept any value; got error: %v", err)
+	}
+	defer fs.Close()
+	if len(fs.ListAgents()) != 1 {
+		t.Errorf("expected 1 agent in ValidateOpen mode, got %d", len(fs.ListAgents()))
+	}
+}
+
 // TestV2InvalidIntentFails verifies that an unknown intent causes a load error with a clear message.
 func TestV2InvalidIntentFails(t *testing.T) {
 	dir := t.TempDir()
@@ -63,7 +207,8 @@ func TestV2InvalidIntentFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bad-agent.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir, VocabularyExtensions{})
+	vocabPath := writeTestVocab(t)
+	_, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown intent, got nil")
 	}
@@ -82,7 +227,8 @@ func TestV2InvalidConversationKindFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bad-kind.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir, VocabularyExtensions{})
+	vocabPath := writeTestVocab(t)
+	_, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown conversation_kind, got nil")
 	}
@@ -98,12 +244,12 @@ func TestV2InvalidConversationKindFails(t *testing.T) {
 func TestV2InvalidTrustLabelFails(t *testing.T) {
 	dir := t.TempDir()
 	// Use a sentinel that is not in the v2 enum and never will be.
-	// (Do not use "trusted" here — that was added to v2ValidTrustLabels in lr-e391.)
 	badYAML := strings.ReplaceAll(v2ValidYAML, "- write-pr", "- definitely-not-a-valid-trust-label")
 	if err := os.WriteFile(filepath.Join(dir, "bad-trust.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir, VocabularyExtensions{})
+	vocabPath := writeTestVocab(t)
+	_, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for unknown trust_label, got nil")
 	}
@@ -122,12 +268,91 @@ func TestV2MissingReturnsVerdictFieldFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "no-verdict.yaml"), []byte(badYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewFileStore(dir, VocabularyExtensions{})
+	// Required-field checks run regardless of vocabulary mode.
+	_, err := NewFileStore(dir, "", VocabularyExtensions{})
 	if err == nil {
 		t.Fatal("expected error for missing returns.verdict_field, got nil")
 	}
 	if !strings.Contains(err.Error(), "returns.verdict_field") {
 		t.Errorf("error should mention returns.verdict_field; got: %v", err)
+	}
+}
+
+// TestV2MultipleConflictsAggregated verifies that all vocabulary conflicts across
+// an entry are reported together, not just the first one encountered.
+func TestV2MultipleConflictsAggregated(t *testing.T) {
+	dir := t.TempDir()
+	// An entry with two bad values: one unknown intent, one unknown trust_label.
+	badYAML := strings.ReplaceAll(v2ValidYAML, "code_work_requested", "bad_intent_one")
+	badYAML = strings.ReplaceAll(badYAML, "- write-pr", "- bad-trust-label-one")
+	if err := os.WriteFile(filepath.Join(dir, "multi-bad.yaml"), []byte(badYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	vocabPath := writeTestVocab(t)
+	_, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
+	if err == nil {
+		t.Fatal("expected error for multiple conflicts, got nil")
+	}
+	ve, ok := err.(RegistryValidationErrors)
+	if !ok {
+		t.Fatalf("expected RegistryValidationErrors, got %T: %v", err, err)
+	}
+	if len(ve) < 2 {
+		t.Errorf("expected at least 2 conflicts aggregated, got %d: %v", len(ve), ve)
+	}
+}
+
+// TestLoadVocabularyKnownFields verifies that the vocabulary loader rejects
+// unknown top-level keys (catches typos like "format" instead of "formats").
+func TestLoadVocabularyKnownFields(t *testing.T) {
+	badVocab := `schema_version: 1
+intents:
+  code_work_requested: "valid"
+format:
+  json: "This is a typo — should be 'formats'"
+`
+	f, err := os.CreateTemp(t.TempDir(), "vocab-bad-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(badVocab); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	_, err = loadVocabulary(f.Name())
+	if err == nil {
+		t.Fatal("expected error for unknown field 'format' (typo for 'formats'), got nil")
+	}
+	if !strings.Contains(err.Error(), "format") {
+		t.Errorf("error should mention the unknown field; got: %v", err)
+	}
+}
+
+// TestLoadVocabularyUnsupportedVersion verifies that a vocabulary file with an
+// unsupported schema_version returns a clear error.
+func TestLoadVocabularyUnsupportedVersion(t *testing.T) {
+	badVocab := `schema_version: 99
+intents:
+  code_work_requested: "valid"
+`
+	f, err := os.CreateTemp(t.TempDir(), "vocab-badver-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(badVocab); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	_, err = loadVocabulary(f.Name())
+	if err == nil {
+		t.Fatal("expected error for unsupported schema_version 99, got nil")
+	}
+	if !strings.Contains(err.Error(), "schema_version") {
+		t.Errorf("error should mention schema_version; got: %v", err)
 	}
 }
 
@@ -166,7 +391,8 @@ trust_labels:
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(orig)
 
-	fs, err := NewFileStore(dir, VocabularyExtensions{})
+	// v1 entries are not vocab-validated; pass empty vocabPath.
+	fs, err := NewFileStore(dir, "", VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("v1 entry must load without error; got: %v", err)
 	}
@@ -254,7 +480,8 @@ trust_labels:
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(orig)
 
-	fs, err := NewFileStore(dir, VocabularyExtensions{})
+	vocabPath := writeTestVocab(t)
+	fs, err := NewFileStore(dir, vocabPath, VocabularyExtensions{})
 	if err != nil {
 		t.Fatalf("mixed v1+v2 store must load without error; got: %v", err)
 	}
@@ -319,8 +546,8 @@ func TestExampleRegistryRoundTrip(t *testing.T) {
 				t.Fatalf("raw yaml.Unmarshal failed: %v", err)
 			}
 
-			// Parse via the full pipeline.
-			agent, err := parseEntry(path, data)
+			// Parse via the full pipeline; nil vocab = ValidateOpen for the round-trip check.
+			agent, err := parseEntry(path, data, nil)
 			if err != nil {
 				t.Fatalf("parseEntry failed: %v", err)
 			}
@@ -396,7 +623,7 @@ func unmarshalYAML(data []byte, v interface{}) error {
 
 // TestAllFleetEntriesValidateAsV2 checks that every YAML in examples/registry/ is
 // a valid schema_version: 2 entry. This test fails if any fleet entry has been left
-// at v1 or uses vocabulary not in the v2 enum.
+// at v1 or uses vocabulary not in the test vocab.
 func TestAllFleetEntriesValidateAsV2(t *testing.T) {
 	// Walk up from this test file to find examples/registry.
 	// This test assumes it runs from the module root (go test ./...).
@@ -405,6 +632,13 @@ func TestAllFleetEntriesValidateAsV2(t *testing.T) {
 	if err != nil {
 		// If the directory doesn't exist (e.g. running from a different cwd), skip gracefully.
 		t.Skipf("examples/registry not found at %s: %v", dir, err)
+	}
+
+	// Load the test vocabulary so we validate against the canonical value set.
+	vocabPath := writeTestVocab(t)
+	vocab, err := loadVocabulary(vocabPath)
+	if err != nil {
+		t.Fatalf("loading test vocabulary: %v", err)
 	}
 
 	// Suppress v1 deprecation warnings; we will fail on v1 entries explicitly below.
@@ -424,7 +658,7 @@ func TestAllFleetEntriesValidateAsV2(t *testing.T) {
 			t.Errorf("reading %s: %v", path, err)
 			continue
 		}
-		agent, err := parseEntry(path, data)
+		agent, err := parseEntry(path, data, vocab)
 		if err != nil {
 			t.Errorf("fleet entry %s failed to parse: %v", e.Name(), err)
 			continue

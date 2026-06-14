@@ -25,4 +25,4 @@ capabilities:
       verdict_field: merge_result
       format: json
 trust_labels:
-  - merge-gate
+  - merge-authority

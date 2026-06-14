@@ -26,7 +26,7 @@ specific agent in a sequencing chain. Part of the [clagentic](https://clagentic.
 - **Strict vocabulary validation.** `schema_version: 2` entries are validated against a
   closed vocabulary. Extend it per-deployment with `--vocabulary-extensions`.
 - **Self-build mechanisms.** Three opt-in mechanisms observe running agents and write
-  `proposed_changes/` entries for operator review: MCP discovery, engram watch,
+  `proposed_changes/` entries for operator review: MCP discovery, source watch,
   usage-driven inference.
 
 No runtime dependencies. Drop-in binary or container. Operators own the registry; agents

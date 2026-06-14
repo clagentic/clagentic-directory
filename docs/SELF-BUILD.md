@@ -79,11 +79,11 @@ capabilities:
 
 ---
 
-## Mechanism 2 — Engram watch
+## Mechanism 2 — Source watch
 
-**Flag:** `--self-build-engram-watch-url <lore-api-url>`
+**Flag:** `--self-build-source-watch-url <memory-api-url>`
 
-Polls the LORE engram/codex stream for `file-diff` events on `SKILL.md` and `AGENT.md`
+Polls the configured memory API for `file-diff` events on `SKILL.md` and `AGENT.md`
 files. When a diff is detected, it does a best-effort parse of added lines for trigger
 and capability keywords and writes a `proposed_changes/` entry.
 
@@ -91,13 +91,13 @@ and capability keywords and writes a `proposed_changes/` entry.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--self-build-engram-watch-url` | (disabled) | LORE API base URL, e.g. `http://localhost:9100` |
-| `--self-build-engram-watch-interval` | `60s` | Poll interval |
-| `--self-build-engram-watch-window` | `5m` | Rate-limit dedup window per agent |
+| `--self-build-source-watch-url` | (disabled) | Memory API base URL, e.g. `http://localhost:9100` |
+| `--self-build-source-watch-interval` | `60s` | Poll interval |
+| `--self-build-source-watch-window` | `5m` | Rate-limit dedup window per agent |
 
 ### How it works
 
-1. Poll `GET <lore-url>/v1/engram/events?kinds=file-diff` on the configured interval.
+1. Poll `GET <memory-api-url>/v1/events?kinds=file-diff` on the configured interval.
 2. Filter for events whose `file_path` ends with `SKILL.md` or `AGENT.md`.
 3. Resolve agent name from the event's `agent` field, or extract from path segments.
 4. Rate-limit: skip if a proposed change for this agent was written within the dedup window.
@@ -140,9 +140,9 @@ coalesces proposals within a short burst into one.
 
 ## Mechanism 3 — Usage-driven inference
 
-**Flags:** `--self-build-usage-relay-url <url>` and `--self-build-usage-window <duration>`
+**Flags:** `--self-build-usage-event-store-url <url>` and `--self-build-usage-window <duration>`
 
-Pulls conversation events from the clagentic-relay event store over a rolling time window,
+Pulls conversation events from the configured event store over a rolling time window,
 aggregates `(actor, next_actor, conversation_kind)` tuples, and compares empirical
 sequencing against the registered `after_agents` in the live registry. Emits a
 `drift_report` when an unregistered sequencing pattern is observed.
@@ -151,12 +151,12 @@ sequencing against the registered `after_agents` in the live registry. Emits a
 
 | Flag | Default | Description |
 |---|---|---|
-| `--self-build-usage-relay-url` | (disabled) | clagentic-relay event store base URL |
+| `--self-build-usage-event-store-url` | (disabled) | Event store base URL |
 | `--self-build-usage-window` | `1h` | Rolling aggregation window |
 
 ### How it works
 
-1. On each tick (interval = window duration), fetch `GET <relay-url>/v1/events?since=<window-start>`.
+1. On each tick (interval = window duration), fetch `GET <event-store-url>/v1/events?since=<window-start>`.
 2. Aggregate `(actor, next_actor, conversation_kind)` counts from events where both fields are non-empty.
 3. For each observed tuple: check whether `next_actor` appears as an `after_agent` for `actor`
    in the registry via `FindBySequencing(actor)`.
@@ -190,9 +190,9 @@ All three mechanisms write files conforming to this structure:
 ```yaml
 schema_version: 1            # always 1
 generated_at: <RFC3339>
-source: <mcp-discovery|engram-watch|usage-inference>
+source: <mcp-discovery|source-watch|usage-inference>
 agent_name: <slug>
-capabilities:                # present for mcp-discovery and engram-watch
+capabilities:                # present for mcp-discovery and source-watch
   - id:
       value: <string>
       confidence: extracted|inferred

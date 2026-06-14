@@ -7,3 +7,8 @@ scope:
     - "schemas/**"
     - ".crew/**"
     - "Makefile"
+    - "README.md"
+    - "CLAUDE.md"
+    - "CONTRIBUTING.md"
+    - ".gitignore"
+    - "client/**"

@@ -134,11 +134,13 @@ func main() {
 	var (
 		registrySource     = flag.String("registry-source", "", "Backend type: file|git (required)")
 		registryDir        = flag.String("registry-dir", "", "Directory containing agent YAML files (when source=file)")
-		vocabularyExt      = flag.String("vocabulary-extensions", "", "Path to a YAML file of additional vocabulary values to merge into the base enums (optional)")
+		vocabFile          = flag.String("vocab-file", "", "Path to a vocabulary.v1.yaml file for schema_version: 2 validation (recommended; omit to run in ValidateOpen mode)")
+		vocabularyExt      = flag.String("vocabulary-extensions", "", "[Deprecated: use --vocab-file] Path to a YAML file of additional vocabulary values to merge into base enums")
 		registryGitURL     = flag.String("registry-git-url", "", "Git repo URL (when source=git)")
 		registryGitRef     = flag.String("registry-git-ref", "main", "Git ref to track (when source=git)")
 		registryGitPoll    = flag.Duration("registry-git-poll", 60*time.Second, "Poll interval (when source=git)")
 		registryGitSubpath = flag.String("registry-git-subpath", "", "Subdirectory within git repo (when source=git)")
+		registryGitVocab   = flag.String("registry-git-vocab", "", "Path within the git repo to a vocabulary.v1.yaml file (when source=git)")
 		registryCacheDir   = flag.String("registry-cache-dir", "/var/cache/clagentic-directory/registry", "Cache dir for git source")
 		registrySecretKey  = flag.String("registry-secret-keyfile", "", "SSH deploy key or HTTPS token file (when source=git)")
 		listen             = flag.String("listen", ":8444", "Listen address")
@@ -185,14 +187,21 @@ func main() {
 		slog.Info("clagentic-directory starting", "revision", "embedded-vcs-or-unknown")
 	}
 
-	// Load optional vocabulary extensions before constructing the store.
+	// Warn loudly when neither --vocab-file nor --vocabulary-extensions is set.
+	// The store will start in ValidateOpen mode, meaning any vocabulary value is accepted.
+	if *vocabFile == "" && *vocabularyExt == "" {
+		slog.Warn("no --vocab-file provided; starting in ValidateOpen mode — schema_version: 2 vocabulary values are not validated. Pass --vocab-file to enable strict checking.")
+	}
+
+	// Load optional (deprecated) vocabulary extensions before constructing the store.
 	ext, err := store.LoadVocabularyExtensions(*vocabularyExt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 	if *vocabularyExt != "" {
-		slog.Info("vocabulary extensions loaded", "path", *vocabularyExt,
+		slog.Warn("--vocabulary-extensions is deprecated; migrate to --vocab-file with a vocabulary.v1.yaml file (lr-dc3e)",
+			"path", *vocabularyExt,
 			"intents", len(ext.Intents),
 			"conversation_kinds", len(ext.ConversationKinds),
 			"trust_labels", len(ext.TrustLabels),
@@ -207,7 +216,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --registry-dir is required when --registry-source=file")
 			os.Exit(1)
 		}
-		fs, err := store.NewFileStore(*registryDir, ext)
+		fs, err := store.NewFileStore(*registryDir, *vocabFile, ext)
 		if err != nil {
 			slog.Error("failed to open file store", "err", err)
 			os.Exit(1)
@@ -220,13 +229,14 @@ func main() {
 			os.Exit(1)
 		}
 		gs, err := store.NewGitStore(store.GitStoreConfig{
-			URL:      *registryGitURL,
-			Ref:      *registryGitRef,
-			CacheDir: *registryCacheDir,
-			Subpath:  *registryGitSubpath,
-			KeyFile:  *registrySecretKey,
-			Poll:     *registryGitPoll,
-			Ext:      ext,
+			URL:            *registryGitURL,
+			Ref:            *registryGitRef,
+			CacheDir:       *registryCacheDir,
+			Subpath:        *registryGitSubpath,
+			KeyFile:        *registrySecretKey,
+			Poll:           *registryGitPoll,
+			VocabularyPath: *registryGitVocab,
+			Ext:            ext,
 		})
 		if err != nil {
 			slog.Error("failed to open git store", "err", err)

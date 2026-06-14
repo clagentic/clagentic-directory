@@ -178,7 +178,8 @@ properties:
         - read-only
         - write-pr
         - write-ops
-        - merge-gate
+        - merge-authority
+        - merge-gate   # deprecated: legacy alias of merge-authority, kept transitionally (lr-4f80)
         - publish
         # Routing / authority labels
         - observe
@@ -188,7 +189,6 @@ properties:
         - trusted
         - autonomous
         - high-stakes
-        - release-authorized
         # Model / source origin labels
         - external-model
         - external-source

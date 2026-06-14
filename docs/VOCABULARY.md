@@ -124,7 +124,8 @@ policies and relay logic to gate authorization decisions.
 | `read-only` | Agent may read data but may not write, merge, or publish. | reviewer, researcher, diagnosis |
 | `write-pr` | Agent may open pull requests and push to feature branches. | builder, scaffolder |
 | `write-ops` | Agent may execute runbooks and ops-side write operations (not code branches). | ops |
-| `merge-gate` | Agent is authorized to merge pull requests into main. | merge-gate |
+| `merge-authority` | Agent has authority to merge pull requests to a protected branch. | merge-gate |
+| `merge-gate` | _Deprecated._ Legacy alias of `merge-authority`, kept transitionally (lr-4f80). | merge-gate |
 | `publish` | Agent is authorized to publish artifacts or releases (packages, container images). | release agent |
 | `observe` | Agent observes events (e.g. monitors, logging agents) but takes no autonomous action. | monitor |
 | `escalation-surface` | Agent is the escalation surface. Humans and agents route unresolved issues here. | director |
@@ -132,7 +133,6 @@ policies and relay logic to gate authorization decisions.
 | `trusted` | Agent operates within established role boundaries. | Most agents |
 | `autonomous` | Agent may act without per-action user confirmation within its defined scope. | builder, merge-gate, harvester, director |
 | `high-stakes` | Agent is used for decisions with significant or hard-to-reverse consequences. | merge-gate, extended-reasoning, director |
-| `release-authorized` | Agent is authorized to perform release-gate actions (merge, tag, push). | merge-gate |
 | `external-model` | Agent delegates execution to a non-Claude model or API. | codex, cross-provider |
 | `external-source` | Agent fetches information from external web sources. | researcher, web-researcher |
 | `local-model` | Agent uses locally-hosted models rather than cloud APIs. | local-inference |

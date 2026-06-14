@@ -12,170 +12,77 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// v2ValidIntents is the closed set of intent strings valid in schema_version: 2 entries.
-// Any string not in this set causes a hard load failure for v2 entries.
-// Update this alongside schemas/agent-entry.v2.yaml and schemas/vocabulary.v1.yaml.
-var v2ValidIntents = map[string]bool{
-	// Code work
-	"code_work_requested": true,
-	"code-generation":     true,
-	"implement-task":      true,
-	// Code review
-	"pr_opened":             true,
-	"code_ready_for_review": true,
-	"code-review":           true,
-	"review-pr":             true,
-	"review-commit":         true,
-	// Merge / release
-	"merge_requested": true,
-	"merge-pr":        true,
-	"release":         true,
-	"tag-release":     true,
-	// Diagnosis
-	"diagnostic_requested": true,
-	"root_cause_unknown":   true,
-	"escalation_diagnosis": true,
-	// Ops
-	"deploy_requested": true,
-	"runbook_run":      true,
-	"ops_check":        true,
-	// Research
-	"research_requested": true,
-	"survey_requested":   true,
-	"research":           true,
-	"investigate":        true,
-	"find-information":   true,
-	// Web research
-	"web-research":           true,
-	"web-search":             true,
-	"url-fetch":              true,
-	"fact-lookup":            true,
-	"doc-lookup":             true,
-	"large-context-analysis": true,
-	"codebase-survey":        true,
-	"community-sentiment":    true,
-	"reddit-research":        true,
-	"user-opinion-research":  true,
-	// Analysis & review
-	"deep-analysis":       true,
-	"architecture-review": true,
-	"security-review":     true,
-	"tradeoff-evaluation": true,
-	"second-opinion":      true,
-	// Model delegation
-	"delegate-to-codex": true,
-	"codex-review":      true,
-	"gpt-reasoning":     true,
-	"local-inference":   true,
-	"cheap-inference":   true,
-	"offline-inference": true,
-	"embeddings":        true,
-	// Intelligence harvesting
-	"inspect-repo":         true,
-	"harvest-intelligence": true,
-	"ingest-candidate":     true,
-	// Scaffolding
-	"scaffold_requested": true,
-	"new_project_setup":  true,
-	// Testing & probing
-	"probe":       true,
-	"wiring-test": true,
-	// Routing / escalation
-	"escalation":         true,
-	"portfolio_question": true,
-	"dispatch_routing":   true,
-}
-
-// v2ValidConversationKinds is the closed set of conversation_kinds valid in schema_version: 2.
-var v2ValidConversationKinds = map[string]bool{
-	"build":        true,
-	"consult":      true,
-	"smoke":        true,
-	"gate":         true,
-	"research":     true,
-	"review":       true,
-	"deploy":       true,
-	"planning":     true,
-	"directive":    true,
-	"escalation":   true,
-	"coordination": true,
-	// Additional kinds from clagentic-config canonical agents
-	"advisory":        true,
-	"code-generation": true,
-	"classification":  true,
-	"summarization":   true,
-	"design":          true,
-	"test":            true,
-}
-
-// v2ValidTrustLabels is the closed set of trust_labels valid in schema_version: 2.
-var v2ValidTrustLabels = map[string]bool{
-	// Write / gate labels
-	"read-only":       true,
-	"write-pr":        true,
-	"write-ops":       true,
-	"merge-authority": true,
-	"merge-gate":      true, // deprecated: legacy alias of merge-authority, kept transitionally (lr-4f80)
-	"publish":         true,
-	// Routing / authority labels
-	"observe":            true,
-	"escalation-surface": true,
-	"dispatch-authority": true,
-	// Agent character labels
-	"trusted":     true,
-	"autonomous":  true,
-	"high-stakes": true,
-	// Model / source origin labels
-	"external-model":  true,
-	"external-source": true,
-	"local-model":     true,
-	// Lifecycle labels
-	"test-only": true,
-}
-
-// v2ValidFormats is the closed set of returns.format values valid in schema_version: 2.
-var v2ValidFormats = map[string]bool{
-	"json":                true,
-	"structured":          true,
-	"structured-markdown": true,
-	"url":                 true,
-	"text":                true,
-	// Additional formats
-	"agent-result-json":     true,
-	"verbatim-model-output": true,
-	"plaintext":             true,
+// snapshot is the atomic unit of store state: agents and vocabulary are always
+// published together. Readers hold a reference to a snapshot; reloads produce
+// a new snapshot and swap it under mu.
+type snapshot struct {
+	agents map[string]Agent
+	vocab  *vocabulary // nil means ValidateOpen
 }
 
 // FileStore implements Store by reading YAML agent entries from a directory.
+// An optional vocabulary file is watched alongside the registry directory;
+// when either changes, the store reloads atomically.
 type FileStore struct {
-	dir     string
-	mu      sync.RWMutex
-	agents  map[string]Agent
+	dir       string
+	vocabPath string // absolute path; empty means ValidateOpen
+	mode      ValidationMode
+
+	reloadMu sync.Mutex   // serializes reload candidate building; never held during I/O waits
+	mu       sync.RWMutex // protects snap; held only for the final swap and reads
+	snap     snapshot
+
 	watcher *fsnotify.Watcher
 }
 
 // NewFileStore creates a FileStore rooted at dir and does an initial load.
 // It starts an inotify watcher for hot-reload in the background.
-// ext is merged into the base vocabulary before the first load; pass a zero
-// VocabularyExtensions if no extensions are needed.
-func NewFileStore(dir string, ext VocabularyExtensions) (*FileStore, error) {
-	applyExtensions(ext)
-	fs := &FileStore{
-		dir:    dir,
-		agents: make(map[string]Agent),
+//
+// vocabPath is the path to a vocabulary.v1.yaml file (see docs/VOCABULARY.md).
+// When empty, vocabulary checking is skipped (ValidateOpen).
+//
+// ext is a deprecated shim for --vocabulary-extensions; pass zero value when
+// using --vocab-file. If both vocabPath and ext are provided, ext values are
+// merged into the loaded vocabulary with a deprecation warning.
+func NewFileStore(dir, vocabPath string, ext VocabularyExtensions) (*FileStore, error) {
+	vocab, mode, err := resolveVocabulary(vocabPath, ext)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
 	}
-	if err := fs.Reload(); err != nil {
+
+	var absVocab, vocabDir string
+	if vocabPath != "" {
+		absVocab, vocabDir, err = cleanVocabPath(vocabPath)
+		if err != nil {
+			return nil, fmt.Errorf("store: %w", err)
+		}
+	}
+
+	fs := &FileStore{
+		dir:       dir,
+		vocabPath: absVocab,
+		mode:      mode,
+	}
+
+	if err := fs.reload(vocab); err != nil {
 		return nil, err
 	}
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		slog.Warn("fsnotify unavailable, hot-reload disabled", "err", err)
+
+	w, werr := fsnotify.NewWatcher()
+	if werr != nil {
+		slog.Warn("fsnotify unavailable, hot-reload disabled", "err", werr)
 		return fs, nil
 	}
 	if err := w.Add(dir); err != nil {
 		slog.Warn("could not watch registry dir", "dir", dir, "err", err)
 		w.Close()
 		return fs, nil
+	}
+	if vocabDir != "" && vocabDir != dir {
+		if err := w.Add(vocabDir); err != nil {
+			slog.Warn("could not watch vocab file parent dir", "dir", vocabDir, "err", err)
+			// Non-fatal: registry-only hot-reload still works.
+		}
 	}
 	fs.watcher = w
 	go fs.watchLoop()
@@ -189,12 +96,20 @@ func (f *FileStore) watchLoop() {
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
-				if err := f.Reload(); err != nil {
-					slog.Error("hot-reload failed", "err", err)
-				} else {
-					slog.Info("registry hot-reloaded", "trigger", event.Name)
-				}
+			if !f.isRelevantEvent(event) {
+				continue
+			}
+			// Re-add watch on vocab file parent dir after rename/remove
+			// (editors often replace files via rename).
+			if f.vocabPath != "" &&
+				(event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove)) {
+				vocabDir := filepath.Dir(f.vocabPath)
+				_ = f.watcher.Add(vocabDir)
+			}
+			if err := f.Reload(); err != nil {
+				slog.Error("hot-reload failed", "err", err)
+			} else {
+				slog.Info("registry hot-reloaded", "trigger", event.Name)
 			}
 		case err, ok := <-f.watcher.Errors:
 			if !ok {
@@ -205,6 +120,28 @@ func (f *FileStore) watchLoop() {
 	}
 }
 
+// isRelevantEvent returns true for fsnotify events that should trigger a reload.
+// Events from the vocab file's parent directory are filtered to only the vocab
+// file path; all changes within the registry dir are treated as relevant.
+func (f *FileStore) isRelevantEvent(event fsnotify.Event) bool {
+	if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) &&
+		!event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
+		return false
+	}
+	evPath, _ := filepath.Abs(event.Name)
+	cleanDir := filepath.Clean(f.dir)
+	// Any change in the registry dir is relevant.
+	if strings.HasPrefix(evPath, cleanDir+string(filepath.Separator)) ||
+		filepath.Clean(evPath) == cleanDir {
+		return true
+	}
+	// For the vocab file parent dir, only trigger on the vocab file itself.
+	if f.vocabPath != "" && filepath.Clean(evPath) == filepath.Clean(f.vocabPath) {
+		return true
+	}
+	return false
+}
+
 // Close shuts down the background watcher.
 func (f *FileStore) Close() error {
 	if f.watcher != nil {
@@ -213,23 +150,67 @@ func (f *FileStore) Close() error {
 	return nil
 }
 
-// Reload re-reads all YAML files in the directory.
+// Reload re-reads the vocabulary file and all YAML agent files. If the reload
+// produces no validation errors, the new snapshot is swapped in atomically.
+// On conflict errors, the old snapshot is retained and the errors are logged.
 func (f *FileStore) Reload() error {
-	entries, err := loadDir(f.dir)
+	f.reloadMu.Lock()
+	defer f.reloadMu.Unlock()
+
+	var (
+		vocab *vocabulary
+		err   error
+	)
+	if f.vocabPath != "" {
+		vocab, err = loadVocabulary(f.vocabPath)
+		if err != nil {
+			slog.Error("reload: failed to load vocabulary; keeping old snapshot",
+				"vocab_path", f.vocabPath, "err", err)
+			return err
+		}
+	}
+	return f.reload(vocab)
+}
+
+// reload builds a new snapshot from vocab and the registry dir, then swaps it in.
+// Vocabulary conflicts aggregate across all entries; on any conflict the old
+// snapshot is retained and all conflicts are logged.
+func (f *FileStore) reload(vocab *vocabulary) error {
+	entries, err := loadDir(f.dir, vocab)
 	if err != nil {
+		var ve RegistryValidationErrors
+		if asVE(err, &ve) {
+			slog.Error("reload: vocabulary conflicts; keeping old snapshot",
+				"vocab_path", f.vocabPath,
+				"conflict_count", len(ve),
+				"conflicts", ve.Error())
+			return err
+		}
 		return err
 	}
 	f.mu.Lock()
-	f.agents = entries
+	f.snap = snapshot{agents: entries, vocab: vocab}
 	f.mu.Unlock()
 	return nil
+}
+
+// asVE type-asserts err to RegistryValidationErrors. Returns true on match.
+func asVE(err error, out *RegistryValidationErrors) bool {
+	if err == nil {
+		return false
+	}
+	if ve, ok := err.(RegistryValidationErrors); ok {
+		*out = ve
+		return true
+	}
+	return false
 }
 
 func (f *FileStore) ListAgents() []Agent {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	out := make([]Agent, 0, len(f.agents))
-	for _, a := range f.agents {
+	out := make([]Agent, 0, len(f.snap.agents))
+	for _, a := range f.snap.agents {
 		out = append(out, a)
 	}
 	return out
@@ -238,7 +219,7 @@ func (f *FileStore) ListAgents() []Agent {
 func (f *FileStore) GetAgent(name string) (Agent, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	a, ok := f.agents[name]
+	a, ok := f.snap.agents[name]
 	return a, ok
 }
 
@@ -250,7 +231,7 @@ func (f *FileStore) FindByCapability(intents ...string) []Agent {
 		intentSet[i] = true
 	}
 	var out []Agent
-	for _, a := range f.agents {
+	for _, a := range f.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, t := range cap.Triggers.Intents {
@@ -272,7 +253,7 @@ func (f *FileStore) FindByConversationKind(kind string) []Agent {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	var out []Agent
-	for _, a := range f.agents {
+	for _, a := range f.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, k := range cap.Triggers.ConversationKinds {
@@ -294,7 +275,7 @@ func (f *FileStore) FindBySequencing(afterAgent string) []Agent {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	var out []Agent
-	for _, a := range f.agents {
+	for _, a := range f.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, ag := range cap.Triggers.AfterAgents {
@@ -347,12 +328,15 @@ type rawReturns struct {
 	Format       string `yaml:"format"`
 }
 
-func loadDir(dir string) (map[string]Agent, error) {
+// loadDir reads all YAML agent files in dir, validating v2 entries against vocab.
+// Returns RegistryValidationErrors (aggregated) when vocabulary conflicts are found.
+func loadDir(dir string, vocab *vocabulary) (map[string]Agent, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading registry dir %s: %w", dir, err)
 	}
 	agents := make(map[string]Agent)
+	var allConflicts RegistryValidationErrors
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -366,14 +350,22 @@ func loadDir(dir string) (map[string]Agent, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}
-		agent, err := parseEntry(path, data)
+		agent, err := parseEntry(path, data, vocab)
 		if err != nil {
+			// Aggregate vocabulary conflicts; fail fast on structural errors.
+			if ve, ok := err.(RegistryValidationErrors); ok {
+				allConflicts = append(allConflicts, ve...)
+				continue
+			}
 			return nil, err
 		}
 		if _, dup := agents[agent.Name]; dup {
 			return nil, fmt.Errorf("duplicate agent name %q in %s", agent.Name, path)
 		}
 		agents[agent.Name] = agent
+	}
+	if len(allConflicts) > 0 {
+		return nil, allConflicts
 	}
 	return agents, nil
 }
@@ -382,7 +374,7 @@ func loadDir(dir string) (map[string]Agent, error) {
 // This guards against yaml.v3 alias-bomb and deeply-nested DOS attacks.
 const maxYAMLSize = 1 << 20 // 1 MiB
 
-func parseEntry(path string, data []byte) (Agent, error) {
+func parseEntry(path string, data []byte, vocab *vocabulary) (Agent, error) {
 	if len(data) > maxYAMLSize {
 		return Agent{}, fmt.Errorf("%s: YAML entry too large (%d bytes, max %d)", path, len(data), maxYAMLSize)
 	}
@@ -399,8 +391,12 @@ func parseEntry(path string, data []byte) (Agent, error) {
 		slog.Warn("agent entry uses schema_version 1; please migrate to v2 (lr-1745)",
 			"file", path)
 	case 2:
-		// v2 entries are validated strictly against the closed vocabulary.
-		if err := validateV2(path, &raw); err != nil {
+		// Required-field checks run regardless of vocabulary mode.
+		if err := checkV2RequiredFields(path, &raw); err != nil {
+			return Agent{}, err
+		}
+		// Vocabulary validation: nil vocab means ValidateOpen, returns nil immediately.
+		if err := vocab.validateV2(path, &raw); err != nil {
 			return Agent{}, err
 		}
 	default:
@@ -441,22 +437,10 @@ func parseEntry(path string, data []byte) (Agent, error) {
 	}, nil
 }
 
-// validateV2 applies strict vocabulary validation to a schema_version: 2 entry.
-// It fails with a clear error naming the offending field and value on any violation.
-func validateV2(path string, raw *rawEntry) error {
+// checkV2RequiredFields enforces the non-vocabulary required fields for v2 entries.
+// These checks run regardless of vocabulary mode (ValidateStrict or ValidateOpen).
+func checkV2RequiredFields(path string, raw *rawEntry) error {
 	for _, rc := range raw.Capabilities {
-		for _, intent := range rc.Triggers.Intents {
-			if !v2ValidIntents[intent] {
-				return fmt.Errorf("%s: capability %q: triggers.intents contains unknown value %q; see docs/VOCABULARY.md or schemas/vocabulary.v1.yaml for valid intents",
-					path, rc.ID, intent)
-			}
-		}
-		for _, kind := range rc.Triggers.ConversationKinds {
-			if !v2ValidConversationKinds[kind] {
-				return fmt.Errorf("%s: capability %q: triggers.conversation_kinds contains unknown value %q; see docs/VOCABULARY.md for valid kinds",
-					path, rc.ID, kind)
-			}
-		}
 		if rc.Returns.VerdictField == "" {
 			return fmt.Errorf("%s: capability %q: returns.verdict_field is required in schema_version: 2",
 				path, rc.ID)
@@ -464,16 +448,6 @@ func validateV2(path string, raw *rawEntry) error {
 		if rc.Returns.Format == "" {
 			return fmt.Errorf("%s: capability %q: returns.format is required in schema_version: 2",
 				path, rc.ID)
-		}
-		if !v2ValidFormats[rc.Returns.Format] {
-			return fmt.Errorf("%s: capability %q: returns.format contains unknown value %q; see docs/VOCABULARY.md for valid formats",
-				path, rc.ID, rc.Returns.Format)
-		}
-	}
-	for _, label := range raw.TrustLabels {
-		if !v2ValidTrustLabels[label] {
-			return fmt.Errorf("%s: trust_labels contains unknown value %q; see docs/VOCABULARY.md for valid trust_labels",
-				path, label)
 		}
 	}
 	return nil

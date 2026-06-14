@@ -1,0 +1,9 @@
+scope:
+  allowed_paths:
+    - "internal/**"
+    - "cmd/**"
+    - "docs/**"
+    - "examples/**"
+    - "schemas/**"
+    - ".crew/**"
+    - "Makefile"

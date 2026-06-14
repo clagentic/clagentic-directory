@@ -110,6 +110,12 @@ func (g *GitStore) loadVocab(ext VocabularyExtensions) (*vocabulary, ValidationM
 
 // resolveGitVocabPath joins repoDir and relPath and checks for path traversal.
 // relPath must not contain ".." components.
+//
+// The check runs on the *cleaned* path (after filepath.Clean), not the raw
+// input. This is intentional: a crafted path like "foo/../../../etc/passwd"
+// becomes "../../etc/passwd" after cleaning, which the ".." check then
+// catches. Checking the raw input would miss multi-segment traversals that
+// cancel each other out before the final join.
 func resolveGitVocabPath(repoDir, relPath string) (string, error) {
 	cleaned := filepath.Clean(relPath)
 	if strings.Contains(cleaned, "..") {

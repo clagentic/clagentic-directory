@@ -12,6 +12,8 @@ import (
 )
 
 // GitStore implements Store by cloning a git repo and polling for changes.
+// When a VocabularyPath is configured, the vocabulary file is re-read on every
+// poll cycle and validated atomically with the agent entries (snapshot pattern).
 type GitStore struct {
 	url      string
 	ref      string
@@ -19,10 +21,16 @@ type GitStore struct {
 	subpath  string
 	keyFile  string
 	poll     time.Duration
+	// vocabPath is the path within the cloned repo to the vocabulary file.
+	// Empty means ValidateOpen.
+	vocabPath string
+	mode      ValidationMode
 
-	mu     sync.RWMutex
-	agents map[string]Agent
-	done   chan struct{}
+	reloadMu sync.Mutex   // serializes reload candidate building
+	mu       sync.RWMutex // protects snap; held only for swap and reads
+	snap     snapshot
+
+	done chan struct{}
 }
 
 // GitStoreConfig holds configuration for a GitStore.
@@ -33,14 +41,18 @@ type GitStoreConfig struct {
 	Subpath  string        // subdirectory within repo for registry files
 	KeyFile  string        // SSH deploy key or HTTPS token file (optional)
 	Poll     time.Duration // default: 60s
-	// Ext holds optional vocabulary extensions to merge into the base enums
-	// before the first registry load.
+	// VocabularyPath is the path within the cloned repo to a vocabulary.v1.yaml
+	// file. When set, schema_version: 2 entries are validated against it.
+	// When empty, vocabulary checking is skipped (ValidateOpen).
+	VocabularyPath string
+	// Ext holds optional vocabulary extensions.
+	//
+	// Deprecated: use VocabularyPath and a vocabulary.v1.yaml file instead. (lr-dc3e)
 	Ext VocabularyExtensions
 }
 
 // NewGitStore clones the repo and starts the poll loop.
 func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
-	applyExtensions(cfg.Ext)
 	if cfg.Ref == "" {
 		cfg.Ref = "main"
 	}
@@ -48,14 +60,14 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 		cfg.Poll = 60 * time.Second
 	}
 	gs := &GitStore{
-		url:      cfg.URL,
-		ref:      cfg.Ref,
-		cacheDir: cfg.CacheDir,
-		subpath:  cfg.Subpath,
-		keyFile:  cfg.KeyFile,
-		poll:     cfg.Poll,
-		agents:   make(map[string]Agent),
-		done:     make(chan struct{}),
+		url:       cfg.URL,
+		ref:       cfg.Ref,
+		cacheDir:  cfg.CacheDir,
+		subpath:   cfg.Subpath,
+		keyFile:   cfg.KeyFile,
+		poll:      cfg.Poll,
+		vocabPath: cfg.VocabularyPath,
+		done:      make(chan struct{}),
 	}
 
 	repoDir := gs.repoDir()
@@ -68,12 +80,48 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 		}
 	}
 
-	if err := gs.Reload(); err != nil {
+	vocab, mode, err := gs.loadVocab(cfg.Ext)
+	if err != nil {
+		return nil, err
+	}
+	gs.mode = mode
+
+	if err := gs.reload(vocab); err != nil {
 		return nil, err
 	}
 
 	go gs.pollLoop()
 	return gs, nil
+}
+
+// loadVocab resolves the vocabulary for the current checkout.
+// It reads the vocabulary file from the repo working tree (if configured)
+// and applies any deprecated VocabularyExtensions shim.
+func (g *GitStore) loadVocab(ext VocabularyExtensions) (*vocabulary, ValidationMode, error) {
+	if g.vocabPath == "" {
+		return resolveVocabulary("", ext)
+	}
+	absPath, err := resolveGitVocabPath(g.repoDir(), g.vocabPath)
+	if err != nil {
+		return nil, ValidateOpen, err
+	}
+	return resolveVocabulary(absPath, ext)
+}
+
+// resolveGitVocabPath joins repoDir and relPath and checks for path traversal.
+// relPath must not contain ".." components.
+//
+// The check runs on the *cleaned* path (after filepath.Clean), not the raw
+// input. This is intentional: a crafted path like "foo/../../../etc/passwd"
+// becomes "../../etc/passwd" after cleaning, which the ".." check then
+// catches. Checking the raw input would miss multi-segment traversals that
+// cancel each other out before the final join.
+func resolveGitVocabPath(repoDir, relPath string) (string, error) {
+	cleaned := filepath.Clean(relPath)
+	if strings.Contains(cleaned, "..") {
+		return "", fmt.Errorf("git vocab path %q contains '..': path traversal not permitted", relPath)
+	}
+	return filepath.Join(repoDir, cleaned), nil
 }
 
 func (g *GitStore) repoDir() string {
@@ -172,14 +220,49 @@ func (g *GitStore) Close() error {
 	return nil
 }
 
-// Reload re-reads the registry files from the cloned repo.
+// Reload re-reads the vocabulary file and registry files from the cloned repo.
+// If vocabulary conflicts are found, the old snapshot is retained and all
+// conflicts are logged.
 func (g *GitStore) Reload() error {
-	entries, err := loadDir(g.registryDir())
+	g.reloadMu.Lock()
+	defer g.reloadMu.Unlock()
+
+	var (
+		vocab *vocabulary
+		err   error
+	)
+	if g.vocabPath != "" {
+		absPath, pathErr := resolveGitVocabPath(g.repoDir(), g.vocabPath)
+		if pathErr != nil {
+			return pathErr
+		}
+		vocab, err = loadVocabulary(absPath)
+		if err != nil {
+			slog.Error("git reload: failed to load vocabulary; keeping old snapshot",
+				"vocab_path", g.vocabPath, "err", err)
+			return err
+		}
+	}
+	return g.reload(vocab)
+}
+
+// reload builds a new snapshot and swaps it in atomically.
+// On vocabulary conflicts the old snapshot is retained.
+func (g *GitStore) reload(vocab *vocabulary) error {
+	entries, err := loadDir(g.registryDir(), vocab)
 	if err != nil {
+		var ve RegistryValidationErrors
+		if asVE(err, &ve) {
+			slog.Error("git reload: vocabulary conflicts; keeping old snapshot",
+				"vocab_path", g.vocabPath,
+				"conflict_count", len(ve),
+				"conflicts", ve.Error())
+			return err
+		}
 		return err
 	}
 	g.mu.Lock()
-	g.agents = entries
+	g.snap = snapshot{agents: entries, vocab: vocab}
 	g.mu.Unlock()
 	return nil
 }
@@ -187,8 +270,8 @@ func (g *GitStore) Reload() error {
 func (g *GitStore) ListAgents() []Agent {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	out := make([]Agent, 0, len(g.agents))
-	for _, a := range g.agents {
+	out := make([]Agent, 0, len(g.snap.agents))
+	for _, a := range g.snap.agents {
 		out = append(out, a)
 	}
 	return out
@@ -197,7 +280,7 @@ func (g *GitStore) ListAgents() []Agent {
 func (g *GitStore) GetAgent(name string) (Agent, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	a, ok := g.agents[name]
+	a, ok := g.snap.agents[name]
 	return a, ok
 }
 
@@ -209,7 +292,7 @@ func (g *GitStore) FindByCapability(intents ...string) []Agent {
 		intentSet[i] = true
 	}
 	var out []Agent
-	for _, a := range g.agents {
+	for _, a := range g.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, t := range cap.Triggers.Intents {
@@ -231,7 +314,7 @@ func (g *GitStore) FindByConversationKind(kind string) []Agent {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	var out []Agent
-	for _, a := range g.agents {
+	for _, a := range g.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, k := range cap.Triggers.ConversationKinds {
@@ -253,7 +336,7 @@ func (g *GitStore) FindBySequencing(afterAgent string) []Agent {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	var out []Agent
-	for _, a := range g.agents {
+	for _, a := range g.snap.agents {
 		for _, cap := range a.Capabilities {
 			matched := false
 			for _, ag := range cap.Triggers.AfterAgents {

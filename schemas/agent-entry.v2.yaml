@@ -105,10 +105,6 @@ properties:
                   - cheap-inference
                   - offline-inference
                   - embeddings
-                  # Intelligence harvesting
-                  - inspect-repo
-                  - harvest-intelligence
-                  - ingest-candidate
                   # Scaffolding
                   - scaffold_requested
                   - new_project_setup
@@ -179,7 +175,6 @@ properties:
         - write-pr
         - write-ops
         - merge-authority
-        - merge-gate   # deprecated: legacy alias of merge-authority, kept transitionally (lr-4f80)
         - publish
         # Routing / authority labels
         - observe

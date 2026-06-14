@@ -66,9 +66,6 @@ intents:
   cheap-inference: "Use low-cost local models."
   offline-inference: "Run inference without external APIs."
   embeddings: "Generate vector embeddings."
-  inspect-repo: "Inspect a repository advisory."
-  harvest-intelligence: "Extract high-signal findings."
-  ingest-candidate: "Run a user-approved ingest."
   probe: "Send a probe to verify wiring."
   wiring-test: "Test named-agent routing."
 conversation_kinds:
@@ -94,7 +91,6 @@ trust_labels:
   write-pr: "May open pull requests."
   write-ops: "May execute runbooks."
   merge-authority: "May merge pull requests."
-  merge-gate: "Legacy alias of merge-authority."
   publish: "May publish artifacts."
   observe: "Observes events only."
   escalation-surface: "Escalation surface."

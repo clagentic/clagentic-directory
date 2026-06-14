@@ -26,7 +26,7 @@ func (m *mockStoreReader) FindBySequencing(afterAgent string) []selfbuild.AgentR
 }
 
 // Fixture events: builder always precedes reviewer, but reviewer->merge-gate is NOT registered.
-var usageFixtureEvents = []selfbuild.RelayEvent{
+var usageFixtureEvents = []selfbuild.StoreEvent{
 	{Actor: "builder", NextActor: "reviewer", ConversationKind: "code-review", Timestamp: time.Now()},
 	{Actor: "builder", NextActor: "reviewer", ConversationKind: "code-review", Timestamp: time.Now()},
 	{Actor: "reviewer", NextActor: "merge-gate", ConversationKind: "code-review", Timestamp: time.Now()},
@@ -49,10 +49,10 @@ func newFixtureStore() *mockStoreReader {
 func TestUsageInference_Analyze(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := selfbuild.UsageConfig{
-		RelayURL:    "http://localhost:8445",
-		BaseDir:     baseDir,
-		Window:      time.Hour,
-		RunInterval: time.Hour,
+		EventStoreURL: "http://localhost:8445",
+		BaseDir:       baseDir,
+		Window:        time.Hour,
+		RunInterval:   time.Hour,
 	}
 	u := selfbuild.NewUsageInference(cfg, newFixtureStore())
 
@@ -102,7 +102,7 @@ func TestUsageInference_RegisteredPairSuppressed(t *testing.T) {
 		RunInterval: time.Hour,
 	}
 	// builder->diagnostician is registered; provide only that event.
-	events := []selfbuild.RelayEvent{
+	events := []selfbuild.StoreEvent{
 		{Actor: "builder", NextActor: "diagnostician", ConversationKind: "troubleshoot", Timestamp: time.Now()},
 	}
 	u := selfbuild.NewUsageInference(cfg, newFixtureStore())
@@ -123,7 +123,7 @@ func TestUsageInference_EmptyActorSkipped(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	events := []selfbuild.RelayEvent{
+	events := []selfbuild.StoreEvent{
 		{Actor: "", NextActor: "merge-gate", ConversationKind: "merge"},
 		{Actor: "builder", NextActor: "", ConversationKind: "merge"},
 	}
@@ -145,7 +145,7 @@ func TestUsageInference_NoDirectRegistryWrite(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	events := []selfbuild.RelayEvent{
+	events := []selfbuild.StoreEvent{
 		{Actor: "x", NextActor: "y", ConversationKind: "test", Timestamp: time.Now()},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
@@ -168,7 +168,7 @@ func TestUsageInference_NoDirectRegistryWrite(t *testing.T) {
 
 // TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch verifies that
 // ResearchFirstFlag is set in the drift report when the actor is a lead/director
-// with no recorded lore search in the event window. lr-d482.
+// with no recorded prior-context search in the event window.
 func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := selfbuild.UsageConfig{
@@ -176,12 +176,12 @@ func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) 
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// project-lead is a lead (ActorRole="lead") with no LastLoreSearchAt — flag should fire.
-	events := []selfbuild.RelayEvent{
+	// project-lead is a lead (ActorRole="lead") with no LastContextSearchAt — flag should fire.
+	events := []selfbuild.StoreEvent{
 		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
-			ActorRole: "lead", LastLoreSearchAt: ""},
+			ActorRole: "lead", LastContextSearchAt: ""},
 		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
-			ActorRole: "lead", LastLoreSearchAt: ""},
+			ActorRole: "lead", LastContextSearchAt: ""},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
 
@@ -205,7 +205,7 @@ func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) 
 		t.Fatal("expected at least one drift report")
 	}
 	if !pc.DriftReports[0].ResearchFirstFlag {
-		t.Error("expected ResearchFirstFlag=true for lead with no lore search")
+		t.Error("expected ResearchFirstFlag=true for lead with no prior-context search")
 	}
 	// Also verify the RESEARCH-FIRST note appears in Notes.
 	hasNote := false
@@ -221,7 +221,7 @@ func TestUsageInference_ResearchFirstFlag_SetForLeadWithoutSearch(t *testing.T) 
 }
 
 // TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch verifies that
-// ResearchFirstFlag is NOT set when the actor has a recorded lore search. lr-d482.
+// ResearchFirstFlag is NOT set when the actor has a recorded prior-context search.
 func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := selfbuild.UsageConfig{
@@ -229,10 +229,10 @@ func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// project-lead with a lore search recorded — flag should NOT fire.
-	events := []selfbuild.RelayEvent{
+	// project-lead with a prior-context search recorded — flag should NOT fire.
+	events := []selfbuild.StoreEvent{
 		{Actor: "project-lead", NextActor: "builder", ConversationKind: "build", Timestamp: time.Now(),
-			ActorRole: "lead", LastLoreSearchAt: "2026-05-17T12:00:00Z"},
+			ActorRole: "lead", LastContextSearchAt: "2026-05-17T12:00:00Z"},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
 
@@ -256,12 +256,12 @@ func TestUsageInference_ResearchFirstFlag_ClearForLeadWithSearch(t *testing.T) {
 		t.Fatal("expected at least one drift report")
 	}
 	if pc.DriftReports[0].ResearchFirstFlag {
-		t.Error("expected ResearchFirstFlag=false for lead with a recorded lore search")
+		t.Error("expected ResearchFirstFlag=false for lead with a recorded prior-context search")
 	}
 }
 
 // TestUsageInference_ResearchFirstFlag_ClearForCrew verifies that
-// ResearchFirstFlag is NOT set for crew agents. lr-d482.
+// ResearchFirstFlag is NOT set for crew agents.
 func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := selfbuild.UsageConfig{
@@ -269,10 +269,10 @@ func TestUsageInference_ResearchFirstFlag_ClearForCrew(t *testing.T) {
 		Window:      time.Hour,
 		RunInterval: time.Hour,
 	}
-	// builder is crew — no research-first flag regardless of lore search status.
-	events := []selfbuild.RelayEvent{
+	// builder is crew — no research-first flag regardless of prior-context search status.
+	events := []selfbuild.StoreEvent{
 		{Actor: "builder", NextActor: "merge-gate", ConversationKind: "build", Timestamp: time.Now(),
-			ActorRole: "crew", LastLoreSearchAt: ""},
+			ActorRole: "crew", LastContextSearchAt: ""},
 	}
 	u := selfbuild.NewUsageInference(cfg, &mockStoreReader{})
 

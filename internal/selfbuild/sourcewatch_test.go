@@ -11,7 +11,7 @@ import (
 )
 
 // fixture: two events — one agent-def file, one unrelated file.
-var engramFixtureEvents = []selfbuild.EngramEvent{
+var sourceFixtureEvents = []selfbuild.SourceEvent{
 	{
 		ID:        "ev-001",
 		Timestamp: time.Now(),
@@ -50,16 +50,16 @@ var engramFixtureEvents = []selfbuild.EngramEvent{
 	},
 }
 
-func TestEngramWatcher_ProcessEvents(t *testing.T) {
+func TestSourceWatcher_ProcessEvents(t *testing.T) {
 	baseDir := t.TempDir()
-	w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
-		LOREURL:    "http://localhost:9100",
-		BaseDir:    baseDir,
+	w := selfbuild.NewSourceWatcher(selfbuild.SourceWatchConfig{
+		MemoryAPIURL: "http://localhost:9100",
+		BaseDir:      baseDir,
 		PollInterval: time.Hour, // don't actually poll in tests
 		RateWindow:   time.Hour,
 	})
 
-	written, err := w.ProcessEvents(engramFixtureEvents)
+	written, err := w.ProcessEvents(sourceFixtureEvents)
 	if err != nil {
 		t.Fatalf("ProcessEvents: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestEngramWatcher_ProcessEvents(t *testing.T) {
 		if err := yaml.Unmarshal(data, &pc); err != nil {
 			t.Fatalf("unmarshal %s: %v", path, err)
 		}
-		if pc.Source != "engram-watch" {
-			t.Errorf("Source = %q, want engram-watch", pc.Source)
+		if pc.Source != "source-watch" {
+			t.Errorf("Source = %q, want source-watch", pc.Source)
 		}
 		if pc.AgentName == "" {
 			t.Errorf("AgentName is empty for %s", path)
@@ -92,14 +92,14 @@ func TestEngramWatcher_ProcessEvents(t *testing.T) {
 	}
 }
 
-func TestEngramWatcher_SkipsNonAgentDefFiles(t *testing.T) {
+func TestSourceWatcher_SkipsNonAgentDefFiles(t *testing.T) {
 	baseDir := t.TempDir()
-	w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
+	w := selfbuild.NewSourceWatcher(selfbuild.SourceWatchConfig{
 		BaseDir:    baseDir,
 		RateWindow: time.Hour,
 	})
 
-	nonDefEvents := []selfbuild.EngramEvent{
+	nonDefEvents := []selfbuild.SourceEvent{
 		{
 			ID:       "ev-readme",
 			FilePath: "/workspace/foo/README.md",
@@ -123,15 +123,15 @@ func TestEngramWatcher_SkipsNonAgentDefFiles(t *testing.T) {
 	}
 }
 
-func TestEngramWatcher_RateLimit(t *testing.T) {
+func TestSourceWatcher_RateLimit(t *testing.T) {
 	baseDir := t.TempDir()
 	// Rate window larger than test duration → duplicates are suppressed.
-	w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
+	w := selfbuild.NewSourceWatcher(selfbuild.SourceWatchConfig{
 		BaseDir:    baseDir,
 		RateWindow: time.Hour,
 	})
 
-	sameAgentEvents := []selfbuild.EngramEvent{
+	sameAgentEvents := []selfbuild.SourceEvent{
 		{ID: "a", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: build"},
 		{ID: "b", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: review"},
 	}
@@ -146,14 +146,14 @@ func TestEngramWatcher_RateLimit(t *testing.T) {
 	}
 }
 
-func TestEngramWatcher_NoDirectRegistryWrite(t *testing.T) {
+func TestSourceWatcher_NoDirectRegistryWrite(t *testing.T) {
 	baseDir := t.TempDir()
-	w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
+	w := selfbuild.NewSourceWatcher(selfbuild.SourceWatchConfig{
 		BaseDir:    baseDir,
 		RateWindow: time.Hour,
 	})
 
-	events := []selfbuild.EngramEvent{
+	events := []selfbuild.SourceEvent{
 		{ID: "x", FilePath: "/workspace/agents/merge-gate/SKILL.md", Agent: "merge-gate", Diff: "+trigger: merge-pr"},
 	}
 	_, err := w.ProcessEvents(events)

@@ -21,7 +21,6 @@ import (
 // buildRevision is injected by the binary-rebuild script via -ldflags "-X main.buildRevision=<sha>".
 // When not injected, the value is empty and the running binary relies on Go's built-in
 // debug/buildinfo VCS metadata (set automatically by go build from a git working tree).
-// lr-8fa1: version-drift detection for binary auto-rebuild.
 var buildRevision string
 
 // directoryConfig is a minimal representation of the clagentic-directory config file.
@@ -153,14 +152,14 @@ func main() {
 		// Mechanism 1: MCP discovery (default off).
 		selfBuildMCPDiscovery = flag.Bool("self-build-mcp-discovery", false, "Enable MCP discovery self-build mechanism (default off)")
 
-		// Mechanism 2: Engram watch (default off; empty string = disabled).
-		selfBuildEngramWatchURL      = flag.String("self-build-engram-watch-url", "", "LORE API URL for engram-watch mechanism (default off)")
-		selfBuildEngramWatchInterval = flag.Duration("self-build-engram-watch-interval", 60*time.Second, "Poll interval for engram-watch")
-		selfBuildEngramWatchWindow   = flag.Duration("self-build-engram-watch-window", 5*time.Minute, "Rate-limit dedup window for engram-watch")
+		// Mechanism 2: Source watch (default off; empty string = disabled).
+		selfBuildSourceWatchURL      = flag.String("self-build-source-watch-url", "", "Memory API URL for source-watch mechanism (default off)")
+		selfBuildSourceWatchInterval = flag.Duration("self-build-source-watch-interval", 60*time.Second, "Poll interval for source-watch")
+		selfBuildSourceWatchWindow   = flag.Duration("self-build-source-watch-window", 5*time.Minute, "Rate-limit dedup window for source-watch")
 
 		// Mechanism 3: Usage-driven inference (default off; empty string = disabled).
-		selfBuildUsageRelayURL = flag.String("self-build-usage-relay-url", "", "clagentic-relay event store URL for usage inference (default off)")
-		selfBuildUsageWindow   = flag.Duration("self-build-usage-window", time.Hour, "Rolling window for usage-driven inference")
+		selfBuildUsageEventStoreURL = flag.String("self-build-usage-event-store-url", "", "Event store URL for usage inference (default off)")
+		selfBuildUsageWindow        = flag.Duration("self-build-usage-window", time.Hour, "Rolling window for usage-driven inference")
 	)
 	flag.Parse()
 
@@ -200,7 +199,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *vocabularyExt != "" {
-		slog.Warn("--vocabulary-extensions is deprecated; migrate to --vocab-file with a vocabulary.v1.yaml file (lr-dc3e)",
+		slog.Warn("--vocabulary-extensions is deprecated; migrate to --vocab-file with a vocabulary.v1.yaml file",
 			"path", *vocabularyExt,
 			"intents", len(ext.Intents),
 			"conversation_kinds", len(ext.ConversationKinds),
@@ -255,7 +254,7 @@ func main() {
 	ctx := context.Background()
 
 	// Start opt-in self-build mechanisms.
-	selfBuildActive := *selfBuildMCPDiscovery || *selfBuildEngramWatchURL != "" || *selfBuildUsageRelayURL != ""
+	selfBuildActive := *selfBuildMCPDiscovery || *selfBuildSourceWatchURL != "" || *selfBuildUsageEventStoreURL != ""
 	if selfBuildActive && *selfBuildBaseDir == "" {
 		fmt.Fprintln(os.Stderr, "error: --self-build-base-dir is required when any self-build mechanism is enabled")
 		os.Exit(1)
@@ -268,33 +267,33 @@ func main() {
 		_ = selfbuild.NewMCPDiscovery(selfbuild.MCPConfig{BaseDir: *selfBuildBaseDir})
 	}
 
-	if *selfBuildEngramWatchURL != "" {
-		if err := validateSelfBuildURL(*selfBuildEngramWatchURL, "engram-watch"); err != nil {
-			slog.Error("self-build: invalid engram-watch URL", "err", err)
+	if *selfBuildSourceWatchURL != "" {
+		if err := validateSelfBuildURL(*selfBuildSourceWatchURL, "source-watch"); err != nil {
+			slog.Error("self-build: invalid source-watch URL", "err", err)
 			os.Exit(1)
 		}
-		slog.Info("self-build: engram-watch enabled", "url", *selfBuildEngramWatchURL)
-		w := selfbuild.NewEngramWatcher(selfbuild.EngramWatchConfig{
-			LOREURL:      *selfBuildEngramWatchURL,
+		slog.Info("self-build: source-watch enabled", "url", *selfBuildSourceWatchURL)
+		w := selfbuild.NewSourceWatcher(selfbuild.SourceWatchConfig{
+			MemoryAPIURL: *selfBuildSourceWatchURL,
 			BaseDir:      *selfBuildBaseDir,
-			PollInterval: *selfBuildEngramWatchInterval,
-			RateWindow:   *selfBuildEngramWatchWindow,
+			PollInterval: *selfBuildSourceWatchInterval,
+			RateWindow:   *selfBuildSourceWatchWindow,
 		})
 		go w.Run(ctx)
 	}
 
-	if *selfBuildUsageRelayURL != "" {
-		if err := validateSelfBuildURL(*selfBuildUsageRelayURL, "usage-relay"); err != nil {
-			slog.Error("self-build: invalid usage-relay URL", "err", err)
+	if *selfBuildUsageEventStoreURL != "" {
+		if err := validateSelfBuildURL(*selfBuildUsageEventStoreURL, "usage-event-store"); err != nil {
+			slog.Error("self-build: invalid usage-event-store URL", "err", err)
 			os.Exit(1)
 		}
-		slog.Info("self-build: usage-inference enabled", "relay", *selfBuildUsageRelayURL, "window", *selfBuildUsageWindow)
+		slog.Info("self-build: usage-inference enabled", "event_store", *selfBuildUsageEventStoreURL, "window", *selfBuildUsageWindow)
 		adapter := &storeSequencingAdapter{s: s}
 		u := selfbuild.NewUsageInference(selfbuild.UsageConfig{
-			RelayURL:    *selfBuildUsageRelayURL,
-			BaseDir:     *selfBuildBaseDir,
-			Window:      *selfBuildUsageWindow,
-			RunInterval: *selfBuildUsageWindow,
+			EventStoreURL: *selfBuildUsageEventStoreURL,
+			BaseDir:       *selfBuildBaseDir,
+			Window:        *selfBuildUsageWindow,
+			RunInterval:   *selfBuildUsageWindow,
 		}, adapter)
 		go u.Run(ctx)
 	}
@@ -321,7 +320,7 @@ func main() {
 
 // validateSelfBuildURL parses the URL and rejects obviously invalid values.
 // It does not restrict which hosts are allowed — operators choose their own
-// LORE/Relay endpoints — but it ensures the URL is at least syntactically valid
+// endpoints — but it ensures the URL is at least syntactically valid
 // and uses http or https, preventing accidental file:// or other scheme abuse.
 func validateSelfBuildURL(raw, mechanism string) error {
 	u, err := url.Parse(raw)

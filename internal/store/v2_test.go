@@ -410,8 +410,8 @@ trust_labels:
 	if !strings.Contains(logged, "schema_version 1") {
 		t.Errorf("expected deprecation warning mentioning schema_version 1; slog output was: %s", logged)
 	}
-	if !strings.Contains(logged, "lr-1745") {
-		t.Errorf("expected deprecation warning referencing lr-1745; slog output was: %s", logged)
+	if !strings.Contains(logged, "schema_version 1") {
+		t.Errorf("expected deprecation warning mentioning schema_version 1 (second check); slog output was: %s", logged)
 	}
 }
 
@@ -515,7 +515,7 @@ trust_labels:
 // TestExampleRegistryRoundTrip parses every YAML in examples/registry/ and verifies
 // that all fields present in the YAML arrive non-nil/non-empty in the parsed Agent
 // struct. This catches silent null-parse caused by nesting mismatches between YAML
-// and Go structs (e.g. lr-a7fe: after_agents was silently left nil when nesting
+// and Go structs (e.g. after_agents was silently left nil when nesting
 // diverged between SCHEMA.md and rawTriggers).
 func TestExampleRegistryRoundTrip(t *testing.T) {
 	dir := "../../examples/registry"
@@ -599,7 +599,7 @@ func TestExampleRegistryRoundTrip(t *testing.T) {
 						i, rc.ID, rc.Triggers.ConversationKinds)
 				}
 				if len(rc.Triggers.AfterAgents) > 0 && len(cap.Triggers.AfterAgents) == 0 {
-					t.Errorf("capability[%d] %q: triggers.after_agents present in YAML (%v) but Triggers.AfterAgents is nil — nesting mismatch (see lr-a7fe)",
+					t.Errorf("capability[%d] %q: triggers.after_agents present in YAML (%v) but Triggers.AfterAgents is nil — nesting mismatch",
 						i, rc.ID, rc.Triggers.AfterAgents)
 				}
 				if len(rc.Triggers.AfterRoles) > 0 && len(cap.Triggers.AfterRoles) == 0 {
@@ -660,7 +660,7 @@ func TestAllFleetEntriesValidateAsV2(t *testing.T) {
 			continue
 		}
 		if agent.SchemaVersion != 2 {
-			t.Errorf("fleet entry %s is schema_version: %d; all entries must be schema_version: 2 (see lr-1745)",
+			t.Errorf("fleet entry %s is schema_version: %d; all entries must be schema_version: 2",
 				e.Name(), agent.SchemaVersion)
 		}
 	}

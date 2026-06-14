@@ -85,7 +85,7 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 | [docs/SCHEMA.md](docs/SCHEMA.md) | Agent entry schema reference (v1 and v2) |
 | [docs/VOCABULARY.md](docs/VOCABULARY.md) | Canonical vocabulary for v2 entries |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Operator deployment guide |
-| [docs/SELF-BUILD.md](docs/SELF-BUILD.md) | Self-build mechanisms (MCP, engram watch, usage inference) |
+| [docs/SELF-BUILD.md](docs/SELF-BUILD.md) | Self-build mechanisms (MCP, source watch, usage inference) |
 | [docs/A2A-COMPAT.md](docs/A2A-COMPAT.md) | A2A AgentCard compatibility |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security and auth notes |
 

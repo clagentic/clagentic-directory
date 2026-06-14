@@ -150,7 +150,6 @@ func TestInspectSubcommand_ServerError(t *testing.T) {
 // TestBuildRevisionVar verifies the buildRevision package var is declared and
 // accessible. The ldflags injection path (-X main.buildRevision=<sha>) fails at
 // link time if the symbol does not exist; this test catches any accidental removal.
-// lr-8fa1: binary auto-rebuild support.
 func TestBuildRevisionVar(t *testing.T) {
 	// buildRevision is set by -ldflags during a release build; in the test binary
 	// it is always empty. We only verify the var is reachable (compile-time proof).

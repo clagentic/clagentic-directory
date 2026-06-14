@@ -120,7 +120,8 @@ properties:
       - read-only
       - write-pr
       - write-ops
-      - merge-gate
+      - merge-authority
+      - merge-gate   # deprecated: legacy alias of merge-authority, kept transitionally (lr-4f80)
       - publish
       # Routing / authority labels
       - observe
@@ -130,7 +131,6 @@ properties:
       - trusted
       - autonomous
       - high-stakes
-      - release-authorized
       # Model / source origin labels
       - external-model
       - external-source
@@ -222,7 +222,8 @@ definitions:
     read-only: "Agent may read data but may not write, merge, or publish."
     write-pr: "Agent may open pull requests and push to feature branches."
     write-ops: "Agent may execute runbooks and ops-side write operations."
-    merge-gate: "Agent is authorized to merge pull requests."
+    merge-authority: "Agent has authority to merge pull requests to a protected branch."
+    merge-gate: "Deprecated legacy alias of merge-authority; kept transitionally (lr-4f80)."
     publish: "Agent is authorized to publish artifacts or releases."
     # Routing / authority labels
     observe: "Agent observes events but takes no autonomous action."
@@ -232,7 +233,6 @@ definitions:
     trusted: "Agent operates within established role boundaries."
     autonomous: "Agent may act without per-action user confirmation within its defined scope."
     high-stakes: "Agent is used for decisions with significant or hard-to-reverse consequences."
-    release-authorized: "Agent is authorized to perform release-gate actions (merge, tag, push)."
     # Model / source origin labels
     external-model: "Agent delegates execution to a non-Claude model or API."
     external-source: "Agent fetches information from external web sources."

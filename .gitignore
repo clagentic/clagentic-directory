@@ -12,5 +12,5 @@
 # Playwright MCP session artifacts
 .playwright-mcp/
 
-# LORE local session state
+# local session state
 .lore

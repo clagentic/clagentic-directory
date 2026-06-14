@@ -73,9 +73,6 @@ intents:
   cheap-inference: "Execute a task using low-cost local models."
   offline-inference: "Run inference without calling external APIs."
   embeddings: "Generate vector embeddings for semantic search or RAG pipelines."
-  inspect-repo: "Inspect a repository advisory for high-signal findings."
-  harvest-intelligence: "Extract high-signal findings from a repository."
-  ingest-candidate: "Run a user-approved ingest of harvested intelligence."
   probe: "Send a probe to verify agent wiring or routing configuration."
   wiring-test: "Test that named-agent routing resolves correctly end-to-end."
 
@@ -103,7 +100,6 @@ trust_labels:
   write-pr: "Agent may open pull requests and push to feature branches."
   write-ops: "Agent may execute runbooks and ops-side write operations."
   merge-authority: "Agent has authority to merge pull requests to a protected branch."
-  merge-gate: "Deprecated alias of merge-authority, kept transitionally (lr-4f80)."
   publish: "Agent is authorized to publish artifacts or releases."
   observe: "Agent observes events but takes no autonomous action."
   escalation-surface: "Agent is the escalation surface."

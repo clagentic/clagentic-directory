@@ -26,7 +26,7 @@ specific agent in a sequencing chain. Part of the [clagentic](https://clagentic.
 - **Strict vocabulary validation.** `schema_version: 2` entries are validated against a
   closed vocabulary. Extend it per-deployment with `--vocabulary-extensions`.
 - **Self-build mechanisms.** Three opt-in mechanisms observe running agents and write
-  `proposed_changes/` entries for operator review: MCP discovery, engram watch,
+  `proposed_changes/` entries for operator review: MCP discovery, source watch,
   usage-driven inference.
 
 No runtime dependencies. Drop-in binary or container. Operators own the registry; agents
@@ -85,7 +85,7 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 | [docs/SCHEMA.md](docs/SCHEMA.md) | Agent entry schema reference (v1 and v2) |
 | [docs/VOCABULARY.md](docs/VOCABULARY.md) | Canonical vocabulary for v2 entries |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Operator deployment guide |
-| [docs/SELF-BUILD.md](docs/SELF-BUILD.md) | Self-build mechanisms (MCP, engram watch, usage inference) |
+| [docs/SELF-BUILD.md](docs/SELF-BUILD.md) | Self-build mechanisms (MCP, source watch, usage inference) |
 | [docs/A2A-COMPAT.md](docs/A2A-COMPAT.md) | A2A AgentCard compatibility |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security and auth notes |
 

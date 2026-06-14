@@ -90,7 +90,7 @@ func loadVocabulary(path string) (*vocabulary, error) {
 // The receiver is not modified. If v is nil, a new vocabulary is built from ext alone.
 //
 // Deprecated: VocabularyExtensions is a compatibility shim for the
-// --vocabulary-extensions flag. Use --vocab-file instead. (lr-dc3e)
+// --vocabulary-extensions flag. Use --vocab-file instead.
 func (v *vocabulary) mergeExtensions(ext VocabularyExtensions) *vocabulary {
 	out := &vocabulary{
 		intents:           make(map[string]bool),
@@ -184,7 +184,6 @@ func (v *vocabulary) validateV2(path string, raw *rawEntry) error {
 //
 // VocabularyExtensions is kept for one release as a compatibility shim for the
 // --vocabulary-extensions flag. New deployments should use --vocab-file instead.
-// (lr-dc3e)
 
 // vocabularyExtensionsFile is the on-disk schema for a vocabulary extensions file.
 type vocabularyExtensionsFile struct {
@@ -196,7 +195,7 @@ type vocabularyExtensionsFile struct {
 
 // VocabularyExtensions holds additional vocabulary values.
 //
-// Deprecated: use a vocabulary file with --vocab-file instead. (lr-dc3e)
+// Deprecated: use a vocabulary file with --vocab-file instead.
 type VocabularyExtensions struct {
 	Intents           []string
 	ConversationKinds []string
@@ -208,7 +207,7 @@ type VocabularyExtensions struct {
 // VocabularyExtensions ready to pass to NewFileStore or NewGitStore.
 // An empty path is not an error — it returns an empty VocabularyExtensions.
 //
-// Deprecated: use LoadVocabulary with --vocab-file instead. (lr-dc3e)
+// Deprecated: use LoadVocabulary with --vocab-file instead.
 func LoadVocabularyExtensions(path string) (VocabularyExtensions, error) {
 	if path == "" {
 		return VocabularyExtensions{}, nil
@@ -243,7 +242,7 @@ func resolveVocabulary(vocabPath string, ext VocabularyExtensions) (*vocabulary,
 			return nil, ValidateOpen, err
 		}
 		if hasExt {
-			slog.Warn("--vocabulary-extensions is deprecated; values merged into --vocab-file vocabulary. Use --vocab-file only in future deployments. (lr-dc3e)",
+			slog.Warn("--vocabulary-extensions is deprecated; values merged into --vocab-file vocabulary. Use --vocab-file only in future deployments.",
 				"vocab_path", vocabPath)
 			v = v.mergeExtensions(ext)
 		}
@@ -252,7 +251,7 @@ func resolveVocabulary(vocabPath string, ext VocabularyExtensions) (*vocabulary,
 
 	if hasExt {
 		// Compat: extensions-only path — build a vocabulary from extensions alone.
-		slog.Warn("--vocabulary-extensions is deprecated; migrate to --vocab-file. (lr-dc3e)")
+		slog.Warn("--vocabulary-extensions is deprecated; migrate to --vocab-file.")
 		v := (*vocabulary)(nil)
 		v = v.mergeExtensions(ext)
 		return v, ValidateStrict, nil

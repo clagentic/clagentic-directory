@@ -72,10 +72,6 @@ properties:
       - cheap-inference
       - offline-inference
       - embeddings
-      # Intelligence harvesting
-      - inspect-repo
-      - harvest-intelligence
-      - ingest-candidate
       # Scaffolding
       - scaffold_requested
       - new_project_setup
@@ -121,7 +117,6 @@ properties:
       - write-pr
       - write-ops
       - merge-authority
-      - merge-gate   # deprecated: legacy alias of merge-authority, kept transitionally (lr-4f80)
       - publish
       # Routing / authority labels
       - observe
@@ -213,17 +208,12 @@ definitions:
     cheap-inference: "Execute a task using low-cost local models when quality requirements are modest."
     offline-inference: "Run inference without calling external APIs."
     embeddings: "Generate vector embeddings for semantic search or RAG pipelines."
-    # Intelligence harvesting
-    inspect-repo: "Run a Stage 1 Tiamut inspection on a repository advisory."
-    harvest-intelligence: "Extract high-signal findings from a repository for potential ingestion."
-    ingest-candidate: "Run a Stage 2 Tiamut ingest on a user-approved advisory."
   trust_labels:
     # Write / gate labels
     read-only: "Agent may read data but may not write, merge, or publish."
     write-pr: "Agent may open pull requests and push to feature branches."
     write-ops: "Agent may execute runbooks and ops-side write operations."
     merge-authority: "Agent has authority to merge pull requests to a protected branch."
-    merge-gate: "Deprecated legacy alias of merge-authority; kept transitionally (lr-4f80)."
     publish: "Agent is authorized to publish artifacts or releases."
     # Routing / authority labels
     observe: "Agent observes events but takes no autonomous action."

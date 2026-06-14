@@ -24,5 +24,5 @@ Summary for this product:
 ## Rules
 
 - No direct writes to the live registry at runtime — all self-build output goes to `proposed_changes/`.
-- All self-build URLs (`--self-build-engram-watch-url`, `--self-build-usage-relay-url`,
+- All self-build URLs (`--self-build-source-watch-url`, `--self-build-usage-event-store-url`,
   `inspect --mcp-url`) must pass `validateSelfBuildURL()` — http/https only.

@@ -47,7 +47,7 @@ type GitStoreConfig struct {
 	VocabularyPath string
 	// Ext holds optional vocabulary extensions.
 	//
-	// Deprecated: use VocabularyPath and a vocabulary.v1.yaml file instead. (lr-dc3e)
+	// Deprecated: use VocabularyPath and a vocabulary.v1.yaml file instead.
 	Ext VocabularyExtensions
 }
 

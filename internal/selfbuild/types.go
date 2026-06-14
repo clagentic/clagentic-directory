@@ -42,7 +42,7 @@ type ProposedCapability struct {
 type ProposedChange struct {
 	SchemaVersion int                  `yaml:"schema_version"`
 	GeneratedAt   time.Time            `yaml:"generated_at"`
-	Source        string               `yaml:"source"` // "mcp-discovery" | "engram-watch" | "usage-inference"
+	Source        string               `yaml:"source"` // "mcp-discovery" | "source-watch" | "usage-inference"
 	AgentName     string               `yaml:"agent_name"`
 	Capabilities  []ProposedCapability `yaml:"capabilities,omitempty"`
 	DriftReports  []DriftReport        `yaml:"drift_reports,omitempty"`
@@ -57,11 +57,11 @@ type DriftReport struct {
 	ObservedCount      int    `yaml:"observed_count"`
 	RegisteredAfterSeq bool   `yaml:"registered_after_seq"`
 	// ResearchFirstFlag is true when the actor is a lead or director who
-	// posted in this conversation window without any recorded lore search
-	// (LastLoreSearchAt absent in the event window). This extends the
-	// lr-5646 usage-inference mechanism to surface the research-first
-	// failure pattern documented in lr-d482 (tome #453).
-	// Populated only when the relay event API exposes ActorRole and
-	// LastLoreSearchAt on RelayEvent; zero-value (false) otherwise.
+	// posted in this conversation window without any recorded prior-context
+	// search (LastContextSearchAt absent in the event window). Surfaces the
+	// research-first failure pattern: existing context should be consulted
+	// before proposing fixes.
+	// Populated only when the event store API exposes ActorRole and
+	// LastContextSearchAt on StoreEvent; zero-value (false) otherwise.
 	ResearchFirstFlag bool `yaml:"research_first_flag,omitempty"`
 }

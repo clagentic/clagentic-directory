@@ -98,9 +98,6 @@ Intents are matched by `FindByCapability(intent...)` to find agents that handle 
 | `cheap-inference` | Execute a task using low-cost local models when quality requirements are modest. | Use when cost is the driving constraint and quality can be reduced. |
 | `offline-inference` | Run inference without calling external APIs. | Use when network isolation or air-gap requirements apply. |
 | `embeddings` | Generate vector embeddings for semantic search or RAG pipelines. | Routes to embedding-capable local model agents. |
-| `inspect-repo` | Inspect a repository advisory for high-signal findings. | Stage 1 trigger for intelligence-harvesting agents. |
-| `harvest-intelligence` | Extract high-signal findings from a repository for potential ingestion. | Broader intelligence-harvesting trigger; used when the source is not a named advisory. |
-| `ingest-candidate` | Run a user-approved ingest of harvested intelligence. | Stage 2 trigger for intelligence-harvesting agents; user-gated. |
 | `probe` | Send a probe to verify agent wiring or routing configuration. | Use for smoke-testing agent routing; triggers test and probe agents. |
 | `wiring-test` | Test that named-agent routing resolves correctly end-to-end. | More specific than `probe`; implies the routing layer is the target. |
 
@@ -138,15 +135,14 @@ Used by `FindByConversationKind(kind)`.
 
 A trust label declares what actions an agent is authorized to take.
 Trust labels are not enforced by the registry itself — they are read by deployment
-policies and relay logic to gate authorization decisions.
+policies and routing logic to gate authorization decisions.
 
 | Label | Semantics | Typical agent roles |
 |-------|-----------|---------------------|
 | `read-only` | Agent may read data but may not write, merge, or publish. | reviewer, researcher, diagnosis |
 | `write-pr` | Agent may open pull requests and push to feature branches. | builder, scaffolder |
 | `write-ops` | Agent may execute runbooks and ops-side write operations (not code branches). | ops |
-| `merge-authority` | Agent has authority to merge pull requests to a protected branch. | merge-gate |
-| `merge-gate` | _Deprecated._ Legacy alias of `merge-authority`, kept transitionally (lr-4f80). | merge-gate |
+| `merge-authority` | Agent has authority to merge pull requests to a protected branch. | release gate |
 | `publish` | Agent is authorized to publish artifacts or releases (packages, container images). | release agent |
 | `observe` | Agent observes events (e.g. monitors, logging agents) but takes no autonomous action. | monitor |
 | `escalation-surface` | Agent is the escalation surface. Humans and agents route unresolved issues here. | director |

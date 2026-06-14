@@ -11,36 +11,36 @@ import (
 
 // UsageConfig configures the usage-driven inference mechanism.
 type UsageConfig struct {
-	// RelayURL is the clagentic-relay event store base URL.
-	RelayURL string
+	// EventStoreURL is the event store base URL.
+	EventStoreURL string
 	// BaseDir is the root directory where proposed_changes/ will be written.
 	BaseDir string
 	// Window is the rolling time window for event aggregation.
 	Window time.Duration
 	// RunInterval controls how often usage is re-analyzed. Default = Window.
 	RunInterval time.Duration
-	// HTTPTimeout for relay API calls.
+	// HTTPTimeout for event store API calls.
 	HTTPTimeout time.Duration
 }
 
-// RelayEvent is a single event from the clagentic-relay event store.
-type RelayEvent struct {
+// StoreEvent is a single event from the event store.
+type StoreEvent struct {
 	Actor            string    `json:"actor"`
 	NextActor        string    `json:"next_actor"`
 	ConversationKind string    `json:"conversation_kind"`
 	Timestamp        time.Time `json:"timestamp"`
 	// ActorRole is the registry role of the actor ("lead", "director",
-	// "operator", "crew"). Populated when the relay event API exposes it.
-	// Empty string when the relay version predates this field. lr-d482.
+	// "operator", "crew"). Populated when the event store API exposes it.
+	// Empty string when the event store version predates this field.
 	ActorRole string `json:"actor_role,omitempty"`
-	// LastLoreSearchAt is the RFC3339 timestamp of the most recent lore
+	// LastContextSearchAt is the RFC3339 timestamp of the most recent prior-context
 	// search recorded in the conversation's agent_state ledger at the time
 	// this event was emitted. Nil/empty when no search was recorded.
-	// Populated when the relay event API exposes it. lr-d482.
-	LastLoreSearchAt string `json:"last_lore_search_at,omitempty"`
+	// Populated when the event store API exposes it.
+	LastContextSearchAt string `json:"last_context_search_at,omitempty"`
 }
 
-// UsageInference pulls events from the relay event store, compares empirical
+// UsageInference pulls events from the event store, compares empirical
 // actor-sequencing against the registered after_agents, and emits drift reports
 // to proposed_changes/ when discrepancies are found.
 //
@@ -78,9 +78,9 @@ func NewUsageInference(cfg UsageConfig, storeReader StoreReader) *UsageInference
 	}
 }
 
-// Run polls the relay event store on the configured interval until ctx is cancelled.
+// Run polls the event store on the configured interval until ctx is cancelled.
 func (u *UsageInference) Run(ctx context.Context) {
-	slog.Info("usage-inference: starting", "relay", u.cfg.RelayURL, "window", u.cfg.Window)
+	slog.Info("usage-inference: starting", "event_store", u.cfg.EventStoreURL, "window", u.cfg.Window)
 	ticker := time.NewTicker(u.cfg.RunInterval)
 	defer ticker.Stop()
 
@@ -98,7 +98,7 @@ func (u *UsageInference) Run(ctx context.Context) {
 }
 
 // Analyze fetches events and writes drift reports (exposed for testing).
-func (u *UsageInference) Analyze(ctx context.Context, events []RelayEvent) ([]string, error) {
+func (u *UsageInference) Analyze(ctx context.Context, events []StoreEvent) ([]string, error) {
 	result := aggregate(events)
 	return u.emitDrift(result)
 }
@@ -113,9 +113,9 @@ func (u *UsageInference) analyze(ctx context.Context) error {
 	return err
 }
 
-func (u *UsageInference) fetchEvents(ctx context.Context) ([]RelayEvent, error) {
+func (u *UsageInference) fetchEvents(ctx context.Context) ([]StoreEvent, error) {
 	since := time.Now().Add(-u.cfg.Window).UTC().Format(time.RFC3339)
-	url := fmt.Sprintf("%s/v1/events?since=%s", u.cfg.RelayURL, since)
+	url := fmt.Sprintf("%s/v1/events?since=%s", u.cfg.EventStoreURL, since)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -129,12 +129,12 @@ func (u *UsageInference) fetchEvents(ctx context.Context) ([]RelayEvent, error) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("relay API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("event store API returned status %d", resp.StatusCode)
 	}
 
-	var events []RelayEvent
+	var events []StoreEvent
 	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		return nil, fmt.Errorf("decode relay events: %w", err)
+		return nil, fmt.Errorf("decode store events: %w", err)
 	}
 	return events, nil
 }
@@ -150,9 +150,9 @@ type sequenceTuple struct {
 type actorResearchInfo struct {
 	// role is the most recent registry role observed for this actor.
 	role string
-	// hasLoreSearch is true when at least one event in the window carried
-	// a non-empty LastLoreSearchAt for this actor.
-	hasLoreSearch bool
+	// hasContextSearch is true when at least one event in the window carried
+	// a non-empty LastContextSearchAt for this actor.
+	hasContextSearch bool
 }
 
 // aggregateResult is the combined output of aggregate.
@@ -164,9 +164,8 @@ type aggregateResult struct {
 }
 
 // aggregate counts (actor, next_actor, conversation_kind) tuples and collects
-// research-first signals (actor role + whether any lore search was recorded).
-// lr-d482: research-first drift detection.
-func aggregate(events []RelayEvent) aggregateResult {
+// research-first signals (actor role + whether any prior-context search was recorded).
+func aggregate(events []StoreEvent) aggregateResult {
 	counts := make(map[sequenceTuple]int)
 	researchInfo := make(map[string]*actorResearchInfo)
 
@@ -190,8 +189,8 @@ func aggregate(events []RelayEvent) aggregateResult {
 		if ev.ActorRole != "" {
 			info.role = ev.ActorRole
 		}
-		if ev.LastLoreSearchAt != "" {
-			info.hasLoreSearch = true
+		if ev.LastContextSearchAt != "" {
+			info.hasContextSearch = true
 		}
 	}
 
@@ -199,7 +198,7 @@ func aggregate(events []RelayEvent) aggregateResult {
 }
 
 // isLeadOrDirector returns true when the role is "lead" or "director".
-// Used by emitDrift to decide whether the research-first flag applies. lr-d482.
+// Used by emitDrift to decide whether the research-first flag applies.
 func isLeadOrDirector(role string) bool {
 	return role == "lead" || role == "director"
 }
@@ -217,10 +216,10 @@ func (u *UsageInference) emitDrift(result aggregateResult) ([]string, error) {
 		}
 
 		// Research-first flag: set when the actor is a lead/director who
-		// posted in this window without a recorded lore search. lr-d482.
+		// posted in this window without a recorded prior-context search.
 		researchFirstFlag := false
 		if info, ok := result.researchInfo[tuple.Actor]; ok {
-			if isLeadOrDirector(info.role) && !info.hasLoreSearch {
+			if isLeadOrDirector(info.role) && !info.hasContextSearch {
 				researchFirstFlag = true
 			}
 		}
@@ -244,7 +243,7 @@ func (u *UsageInference) emitDrift(result aggregateResult) ([]string, error) {
 		}
 
 		// Append research-first note when any report in this batch has the flag set.
-		// lr-d482: signals lead/director posted without prior lore search in this window.
+		// Signals a lead/director posted without a recorded prior-context search in this window.
 		for _, r := range reports {
 			if r.ResearchFirstFlag {
 				notes = append(notes,

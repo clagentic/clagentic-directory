@@ -1,0 +1,127 @@
+# vocabulary.v1.yaml — canonical vocabulary for clagentic-directory
+#
+# Pass this file to clagentic-directory with:
+#   --vocab-file /path/to/vocabulary.v1.yaml
+#
+# When this file is provided, schema_version: 2 agent entries must use only the
+# values listed here for intents, conversation_kinds, trust_labels, and formats.
+# Entries with unknown values fail to load (ValidateStrict mode).
+#
+# When this file is omitted, the store starts in ValidateOpen mode:
+# all vocabulary values are accepted without checking. ValidateOpen is intended
+# for bootstrapping new deployments and should not be used in production.
+#
+# Platform-specific values (agents unique to your deployment) should be added
+# to a copy of this file rather than using --vocabulary-extensions. See
+# docs/VOCABULARY.md for the full vocabulary reference and migration guide.
+#
+# Keys are valid vocabulary values. The string value is an informational
+# description only — it is not used at runtime.
+#
+# schema_version must be 1.
+
+schema_version: 1
+
+intents:
+  code_work_requested: "A code change task has been dispatched to the fleet."
+  code-generation: "A code generation task from a specification has been requested."
+  implement-task: "A described task must be implemented end-to-end."
+  pr_opened: "A pull request has been opened by an upstream agent or operator."
+  code_ready_for_review: "Code has been marked ready for structured review."
+  code-review: "A general code review has been requested."
+  review-pr: "Review of a specific pull request has been requested."
+  review-commit: "Review of a specific commit has been requested."
+  merge_requested: "An operator or agent has requested that an approved PR be merged."
+  merge-pr: "Merge of a specific pull request has been requested."
+  release: "A release action has been requested."
+  tag-release: "A tag-and-release action has been requested."
+  diagnostic_requested: "A diagnostic investigation of a failure or anomaly has been requested."
+  root_cause_unknown: "A failure has been observed and root cause is unknown."
+  escalation_diagnosis: "A diagnostic investigation has been escalated from another agent."
+  deploy_requested: "A deployment action has been requested."
+  runbook_run: "A specific runbook execution has been requested."
+  ops_check: "An operational health check has been requested."
+  research_requested: "A research task has been requested."
+  survey_requested: "A survey of a topic has been requested."
+  research: "General research capability trigger."
+  investigate: "Investigation of a topic or system has been requested."
+  find-information: "Agent is requested to find specific information."
+  scaffold_requested: "A project or code scaffolding task has been requested."
+  new_project_setup: "A new project setup task has been requested."
+  escalation: "An issue has been escalated for routing or decision."
+  portfolio_question: "A question about the agent portfolio or dispatch routing."
+  dispatch_routing: "A routing or dispatch decision is needed."
+  web-research: "Fetch and synthesize information from web pages or search results."
+  web-search: "Run a web search query and return results."
+  url-fetch: "Retrieve and summarize the content of a specific URL."
+  fact-lookup: "Look up a specific fact, version, or configuration detail."
+  doc-lookup: "Check official documentation for a known library, API, or tool."
+  large-context-analysis: "Analyze content requiring more than 100K tokens of context."
+  codebase-survey: "Read and summarize a large codebase in one pass."
+  community-sentiment: "Research what online communities think about a topic."
+  reddit-research: "Search Reddit subreddits and synthesize community opinion."
+  user-opinion-research: "Gather user perspectives from online forums or communities."
+  deep-analysis: "Apply extended reasoning to a complex, ambiguous, or high-stakes problem."
+  architecture-review: "Evaluate a system design or architectural decision."
+  security-review: "Analyze code or design for security vulnerabilities or privacy risks."
+  tradeoff-evaluation: "Weigh competing options and recommend a course of action."
+  second-opinion: "Get an independent evaluation of a design, plan, or code change."
+  delegate-to-codex: "Route a task to the OpenAI Codex CLI for GPT-family execution."
+  codex-review: "Request an adversarial or second-opinion code review from Codex."
+  gpt-reasoning: "Apply GPT-5.x reasoning to a task for cross-provider verification."
+  local-inference: "Run inference on locally-hosted models."
+  cheap-inference: "Execute a task using low-cost local models."
+  offline-inference: "Run inference without calling external APIs."
+  embeddings: "Generate vector embeddings for semantic search or RAG pipelines."
+  inspect-repo: "Inspect a repository advisory for high-signal findings."
+  harvest-intelligence: "Extract high-signal findings from a repository."
+  ingest-candidate: "Run a user-approved ingest of harvested intelligence."
+  probe: "Send a probe to verify agent wiring or routing configuration."
+  wiring-test: "Test that named-agent routing resolves correctly end-to-end."
+
+conversation_kinds:
+  build: "A code-change workflow: feature, fix, or chore PR."
+  consult: "A consulting or advisory session: research, diagnosis, Q&A."
+  smoke: "A lightweight smoke-test or health-check conversation."
+  gate: "A gate check: is this safe/ready to proceed?"
+  research: "A structured research session."
+  review: "A code review session."
+  deploy: "A deployment or release conversation."
+  planning: "A planning or design session."
+  directive: "An operator directive: run this, set up that."
+  escalation: "An escalation session: blocked work, unresolved issue."
+  coordination: "A cross-agent coordination conversation."
+  advisory: "An advisory session."
+  code-generation: "A session whose primary output is generated code."
+  classification: "A session where the primary task is classifying input."
+  summarization: "A session where the primary task is condensing a large input."
+  design: "A design-level session: architecture, API design, or system specification."
+  test: "A test or wiring-verification session; not for production use."
+
+trust_labels:
+  read-only: "Agent may read data but may not write, merge, or publish."
+  write-pr: "Agent may open pull requests and push to feature branches."
+  write-ops: "Agent may execute runbooks and ops-side write operations."
+  merge-authority: "Agent has authority to merge pull requests to a protected branch."
+  merge-gate: "Deprecated alias of merge-authority, kept transitionally (lr-4f80)."
+  publish: "Agent is authorized to publish artifacts or releases."
+  observe: "Agent observes events but takes no autonomous action."
+  escalation-surface: "Agent is the escalation surface."
+  dispatch-authority: "Agent has authority to dispatch and route to other agents."
+  trusted: "Agent operates within established role boundaries."
+  autonomous: "Agent may act without per-action user confirmation within its defined scope."
+  high-stakes: "Agent is used for decisions with significant or hard-to-reverse consequences."
+  external-model: "Agent delegates execution to a non-Claude model or API."
+  external-source: "Agent fetches information from external web sources."
+  local-model: "Agent uses locally-hosted models rather than cloud APIs."
+  test-only: "Agent is for verification and testing purposes only."
+
+formats:
+  json: "Structured JSON object. Consumers should parse as JSON."
+  structured: "A structured object (may be YAML, JSON, or typed SDK envelope)."
+  structured-markdown: "Markdown document with structured sections."
+  url: "A URL string. Typical for PR URLs returned by builders."
+  text: "Unstructured plain text."
+  agent-result-json: "Structured JSON matching an agent_result envelope schema."
+  verbatim-model-output: "The raw output of a delegated model returned without transformation."
+  plaintext: "Simple unstructured text."

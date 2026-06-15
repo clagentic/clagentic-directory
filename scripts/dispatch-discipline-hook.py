@@ -6,9 +6,12 @@ session at the clagentic-directory as the live source of truth for agent
 roles — so the roster is never hardcoded in the hook.
 
 DISPATCH DEFAULT (the process this hook enforces):
-  - Default to in-session SINGLE-AGENT dispatch via the `Agent` tool.
-  - Role selection = query the clagentic-directory (`/v1/find`, `/v1/agents`),
-    NOT a hardcoded list.
+  - USE AGENTS TO DO THE WORK. Build/implement/review/research/debug is
+    dispatched to a crew agent via the `Agent` tool — the session does NOT
+    do the build work itself. Session orchestrates; agents execute.
+  - WHICH agent = query the clagentic-directory (`/v1/find`, `/v1/agents`),
+    the live source of truth for what each agent does. NOT a hardcoded list.
+  - Default dispatch is in-session single-agent (operator in the loop).
   - Teammates (Agent Teams) are an explicit opt-in, not the default.
   - A2A is future / gated.
 
@@ -65,24 +68,27 @@ def _probe_health(base_url: str) -> tuple[bool, str]:
 
 def _healthy_directive(base_url: str) -> str:
     return (
-        "DISPATCH DISCIPLINE · Default to in-session SINGLE-AGENT dispatch via the "
-        "`Agent` tool (operator is in the loop; no detached-autonomy escalation/resume/"
-        "credential tax). Teammates (Agent Teams) are OPT-IN, not default; A2A is future. "
-        f"ROLE SOURCE OF TRUTH = clagentic-directory at {base_url} — to pick an agent, "
-        f"query `{base_url}/v1/find?intent=<intent>` or `{base_url}/v1/agents` (live, "
-        "config-driven registry). Do NOT hardcode or guess the roster — consult the "
-        "directory. Directory healthy this session."
+        "DISPATCH DISCIPLINE · USE AGENTS TO DO THE WORK. Build, implement, review, "
+        "research, debug — dispatch it to a crew agent via the `Agent` tool; do NOT "
+        "do the build work yourself in this session. The session ORCHESTRATES; agents "
+        "EXECUTE. Default to in-session single-agent dispatch (operator in the loop); "
+        "teammates (Agent Teams) opt-in; A2A future. "
+        f"To pick WHICH agent, consult the clagentic-directory at {base_url} — it is the "
+        f"live source of truth for what each agent does: `{base_url}/v1/find?intent=<intent>` "
+        f"or `{base_url}/v1/agents`. Do NOT hardcode or guess the roster. "
+        "Directory healthy this session."
     )
 
 
 def _degraded_directive(base_url: str, detail: str) -> str:
     return (
-        "DISPATCH DISCIPLINE (DEGRADED) · Default to in-session SINGLE-AGENT dispatch via "
-        "the `Agent` tool still applies. BUT the clagentic-directory role registry could "
-        f"NOT be consulted: {base_url} {detail}. Agent selection is operating BLIND — the "
-        "live roster/triggers are unavailable, so do not claim directory-backed routing. "
-        "Surface this to the operator. Check: `systemctl status clagentic-directory` and "
-        f"`curl -s {base_url}/healthz`. (Hook failed OPEN by design — session continues.)"
+        "DISPATCH DISCIPLINE (DEGRADED) · USE AGENTS TO DO THE WORK still applies — "
+        "dispatch build/implement/review/research/debug to a crew agent via the `Agent` "
+        "tool; do NOT do the build work yourself in this session. BUT the clagentic-directory "
+        f"could NOT be consulted ({base_url} {detail}), so WHICH agent does what is operating "
+        "BLIND — the live roster/triggers are unavailable; do not claim directory-backed "
+        "routing. Surface this to the operator. Check: `systemctl status clagentic-directory` "
+        f"and `curl -s {base_url}/healthz`. (Hook failed OPEN by design — session continues.)"
     )
 
 

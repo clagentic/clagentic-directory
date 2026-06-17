@@ -1,3 +1,15 @@
+schema_version: 1
+
+merge_allowed: false
+
+branch_conventions:
+  allowed_prefixes:
+    - feat/
+    - fix/
+    - chore/
+    - docs/
+    - refactor/
+
 scope:
   allowed_paths:
     - "internal/**"
@@ -12,3 +24,10 @@ scope:
     - "CONTRIBUTING.md"
     - ".gitignore"
     - "client/**"
+
+# Builder bot identity for commit re-authoring (lr-66c2).
+# crew_push.py rewrites branch commits to this identity before push so that
+# AMoS-authored commits are attributed to the builder App, not the operator.
+builder_identity:
+  name: "clagentic-builder[bot]"
+  email: "290147524+clagentic-builder[bot]@users.noreply.github.com"

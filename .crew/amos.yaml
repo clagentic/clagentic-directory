@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 merge_allowed: false
 
@@ -24,6 +24,7 @@ scope:
     - "CONTRIBUTING.md"
     - ".gitignore"
     - "client/**"
+    - "scripts/**"
 
 # Builder bot identity for commit re-authoring (lr-66c2).
 # crew_push.py rewrites branch commits to this identity before push so that

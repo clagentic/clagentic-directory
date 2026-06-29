@@ -19,6 +19,9 @@ scope:
     - "**/*.env"
     - "**/.env"
     - "**/secrets/**"
+    # Go dependency manifests — supply-chain surface; must not be auto-edited.
+    - "go.mod"
+    - "go.sum"
     # CI workflow files: runs-on labels and job routing are ops-sensitive.
     # Full-file block since line-level blocking is not supported by guard-scope.
     # FLAG: AMoS will never touch .forgejo/workflows/** — escalate to operator

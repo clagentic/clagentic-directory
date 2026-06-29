@@ -1,0 +1,14 @@
+# .crew/bobbie.yaml — BOBBIE per-project configuration
+#
+# Generated from: examples/starter-bobbie.yaml (crew-manifest lr-c65e)
+# Schema: schemas/crew-config.schema.json (security block, lr-4d7c)
+# Scaffolded by: amos lr-772e
+#
+# No project-specific security rules beyond BOBBIE's defaults.
+# BOBBIE baseline (bobbie.secret, bobbie.bleed, bobbie.dep, bobbie.sast)
+# applies on all PRs.
+
+schema_version: 1
+
+security:
+  rules: []

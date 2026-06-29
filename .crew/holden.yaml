@@ -1,0 +1,18 @@
+# .crew/holden.yaml — HOLDEN per-project configuration
+#
+# Generated from: examples/starter-holden.yaml (crew-manifest lr-c65e)
+# Schema: schemas/holden.schema.json
+# Scaffolded by: amos lr-772e
+#
+# Vanilla read-only lead starter. All fields below use HOLDEN defaults.
+# Customize progressively as project-specific lead behavior is needed.
+
+schema_version: 1
+
+project: clagentic-directory
+home_project: clagentic-directory
+
+project_summary: >-
+  Agent capability registry. Tier 1 infrastructure daemon. Serves live roster
+  of crew agents via /v1/find and /v1/agents; dispatch-discipline-hook.py
+  probes /healthz at SessionStart to emit the dispatch doctrine block.

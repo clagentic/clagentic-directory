@@ -12,6 +12,10 @@ type Agent struct {
 	SchemaVersion int
 	// SourceFile is the YAML file this entry was loaded from.
 	SourceFile string
+	// Role is an optional coarse capability role (e.g. "builder", "reviewer").
+	// Used by FindByCapability as a fallback match when no intent matches
+	// directly or via the canonical synonym table. Empty means no role declared.
+	Role string
 }
 
 // Capability is one capability declared by an agent.

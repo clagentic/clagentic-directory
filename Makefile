@@ -13,7 +13,7 @@ export GOCACHE
 .PHONY: build test vet fmt check
 
 build:
-	go build -C /workspace/clagentic-directory ./...
+	go build -C /workspace/clagentic-directory -o clagentic-directory ./cmd/clagentic-directory
 
 test:
 	go test -C /workspace/clagentic-directory ./...

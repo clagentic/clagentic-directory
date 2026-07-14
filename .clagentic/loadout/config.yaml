@@ -1,0 +1,7 @@
+# Repo-tier loadout config (see /workspace/clagentic-loadout/docs/provisioning.md,
+# "Merge-gate config homes" section). Kept minimal: this repo has no CI runner
+# wired up yet, so the merge gate must not block on a CI signal that will
+# never arrive.
+merge:
+  merge_requirements:
+    ci_pass: false

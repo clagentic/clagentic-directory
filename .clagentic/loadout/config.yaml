@@ -5,3 +5,18 @@
 merge:
   merge_requirements:
     ci_pass: false
+  # lr-2e0a65: without post_merge_steps, loadout-merge runs ZERO post-merge
+  # actions for this repo — a merged PR lands code on main but the running
+  # clagentic-directory.service keeps serving the old build (PR #9 merged
+  # but the matcher fix never went live). These three steps rebuild the
+  # binary and restart the live systemd unit on every merge.
+  post_merge_steps:
+    - cmd: "make -C /workspace/clagentic-directory build"
+      description: "Rebuild the clagentic-directory binary after merge (lr-2e0a65)"
+      on_failure: fail
+    - cmd: "cp /workspace/clagentic-directory/clagentic-directory /usr/local/bin/clagentic-directory"
+      description: "Place the freshly built binary at the path systemd's clagentic-directory.service executes; the Makefile's build target emits to the module root without -o, not directly to /usr/local/bin (lr-2e0a65)"
+      on_failure: fail
+    - cmd: "systemctl restart clagentic-directory.service"
+      description: "Restart the live clagentic-directory.service so the newly built binary is actually serving (lr-2e0a65)"
+      on_failure: fail

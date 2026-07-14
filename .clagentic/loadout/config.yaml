@@ -14,8 +14,8 @@ merge:
     - cmd: "make -C /workspace/clagentic-directory build"
       description: "Rebuild the clagentic-directory binary after merge (lr-2e0a65)"
       on_failure: fail
-    - cmd: "cp /workspace/clagentic-directory/clagentic-directory /usr/local/bin/clagentic-directory"
-      description: "Place the freshly built binary at the path systemd's clagentic-directory.service executes; the Makefile's build target emits to the module root without -o, not directly to /usr/local/bin (lr-2e0a65)"
+    - cmd: "cp /workspace/clagentic-directory/clagentic-directory /usr/local/bin/clagentic-directory.new && mv /usr/local/bin/clagentic-directory.new /usr/local/bin/clagentic-directory"
+      description: "Copy the freshly built binary to a temp path on the same filesystem as the target, then atomically rename it over the live path. In-place `cp` onto /usr/local/bin/clagentic-directory fails with 'Text file busy' while systemd holds the running binary's inode open; `mv` within the same filesystem is a rename() and succeeds regardless, since the running process keeps its old inode until the restart step below (lr-2e0a65 followup, PR #10 deploy-step failure)"
       on_failure: fail
     - cmd: "systemctl restart clagentic-directory.service"
       description: "Restart the live clagentic-directory.service so the newly built binary is actually serving (lr-2e0a65)"

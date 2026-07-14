@@ -287,27 +287,7 @@ func (g *GitStore) GetAgent(name string) (Agent, bool) {
 func (g *GitStore) FindByCapability(intents ...string) []Agent {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	intentSet := make(map[string]bool, len(intents))
-	for _, i := range intents {
-		intentSet[i] = true
-	}
-	var out []Agent
-	for _, a := range g.snap.agents {
-		for _, cap := range a.Capabilities {
-			matched := false
-			for _, t := range cap.Triggers.Intents {
-				if intentSet[t] {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				out = append(out, a)
-				break
-			}
-		}
-	}
-	return out
+	return findByCapability(g.snap.agents, intents...)
 }
 
 func (g *GitStore) FindByConversationKind(kind string) []Agent {

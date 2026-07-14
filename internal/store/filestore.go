@@ -234,27 +234,7 @@ func (f *FileStore) GetAgent(name string) (Agent, bool) {
 func (f *FileStore) FindByCapability(intents ...string) []Agent {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	intentSet := make(map[string]bool, len(intents))
-	for _, i := range intents {
-		intentSet[i] = true
-	}
-	var out []Agent
-	for _, a := range f.snap.agents {
-		for _, cap := range a.Capabilities {
-			matched := false
-			for _, t := range cap.Triggers.Intents {
-				if intentSet[t] {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				out = append(out, a)
-				break
-			}
-		}
-	}
-	return out
+	return findByCapability(f.snap.agents, intents...)
 }
 
 func (f *FileStore) FindByConversationKind(kind string) []Agent {
@@ -314,6 +294,7 @@ type rawIdentity struct {
 	Name        string `yaml:"name"`
 	Version     string `yaml:"version"`
 	Description string `yaml:"description"`
+	Role        string `yaml:"role"`
 }
 
 type rawCapability struct {
@@ -442,6 +423,7 @@ func parseEntry(path string, data []byte, vocab *vocabulary) (Agent, error) {
 		TrustLabels:   raw.TrustLabels,
 		SchemaVersion: raw.SchemaVersion,
 		SourceFile:    path,
+		Role:          raw.Identity.Role,
 	}, nil
 }
 

@@ -8,14 +8,22 @@ merge:
   # lr-2e0a65: without post_merge_steps, loadout-merge runs ZERO post-merge
   # actions for this repo — a merged PR lands code on main but the running
   # clagentic-directory.service keeps serving the old build (PR #9 merged
-  # but the matcher fix never went live). These three steps rebuild the
+  # but the matcher fix never went live). These four steps rebuild the
   # binary and restart the live systemd unit on every merge.
+  #
+  # The runner (post_merge.py) executes each cmd via shlex.split with
+  # shell=False and rejects shell-operator tokens (&&, ||, |, ;, >, <) at
+  # parse time (lr-2e0a65, PR #11 failure) — so the stage-then-atomic-rename
+  # deploy must be two separate ordered steps, not one shell-joined string.
   post_merge_steps:
     - cmd: "make -C /workspace/clagentic-directory build"
       description: "Rebuild the clagentic-directory binary after merge (lr-2e0a65)"
       on_failure: fail
-    - cmd: "cp /workspace/clagentic-directory/clagentic-directory /usr/local/bin/clagentic-directory.new && mv /usr/local/bin/clagentic-directory.new /usr/local/bin/clagentic-directory"
-      description: "Copy the freshly built binary to a temp path on the same filesystem as the target, then atomically rename it over the live path. In-place `cp` onto /usr/local/bin/clagentic-directory fails with 'Text file busy' while systemd holds the running binary's inode open; `mv` within the same filesystem is a rename() and succeeds regardless, since the running process keeps its old inode until the restart step below (lr-2e0a65 followup, PR #10 deploy-step failure)"
+    - cmd: "cp /workspace/clagentic-directory/clagentic-directory /usr/local/bin/clagentic-directory.new"
+      description: "Stage the freshly built binary at a temp path on the same filesystem as the target. In-place `cp` onto /usr/local/bin/clagentic-directory fails with 'Text file busy' while systemd holds the running binary's inode open (lr-2e0a65 followup, PR #10 deploy-step failure)"
+      on_failure: fail
+    - cmd: "mv /usr/local/bin/clagentic-directory.new /usr/local/bin/clagentic-directory"
+      description: "Atomically rename the staged binary over the live path. `mv` within the same filesystem is a rename() and succeeds regardless of the running process holding the old inode open; the old inode stays valid until the restart step below (lr-2e0a65 followup)"
       on_failure: fail
     - cmd: "systemctl restart clagentic-directory.service"
       description: "Restart the live clagentic-directory.service so the newly built binary is actually serving (lr-2e0a65)"

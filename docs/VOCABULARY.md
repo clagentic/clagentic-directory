@@ -46,6 +46,18 @@ agents that used a removed value would silently break at `FindByCapability()` ca
 An intent is a signal that routes work to an agent. It answers: "what action or event happened?"
 Intents are matched by `FindByCapability(intent...)` to find agents that handle a given intent.
 
+`FindByCapability` resolves in three tiers, each run only if the prior tier found nothing:
+
+1. **Exact match** — a capability declares the queried intent directly in `triggers.intents`.
+2. **Synonym match** — the queried intent aliases to a canonical intent (see the synonym
+   table in `internal/store/match.go`) that a capability declares. Covers natural dispatcher
+   queries like `build`, `implement`, `review`, or `investigate` that don't match the
+   canonical vocabulary term verbatim.
+3. **Role match** — the queried value equals an agent's optional `identity.role`
+   (`builder`, `reviewer`, `merger`, `researcher`, `ops`, `diagnostician`). Lets a caller
+   resolve `/v1/find?intent=builder` to whichever agent declares that role, independent of
+   its specific intent vocabulary.
+
 | Intent | Semantics | When to use |
 |--------|-----------|-------------|
 | `code_work_requested` | A code change task has been dispatched to the fleet. | Primary trigger for builder agents. Use when work is fully scoped and ready to be implemented. |

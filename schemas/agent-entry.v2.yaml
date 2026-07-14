@@ -29,6 +29,20 @@ properties:
         pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
       description:
         type: string
+      role:
+        type: string
+        description: |
+          Optional coarse capability role. Used as a FindByCapability fallback
+          match (via /v1/find?intent=<role>) when no intent matches directly
+          or via the canonical synonym table. Absent means no role fallback
+          applies to this agent.
+        enum:
+          - builder
+          - reviewer
+          - merger
+          - researcher
+          - ops
+          - diagnostician
   capabilities:
     type: array
     items:

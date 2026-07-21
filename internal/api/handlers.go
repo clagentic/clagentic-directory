@@ -157,8 +157,12 @@ func requestBaseURL(r *http.Request) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	// Respect a reverse-proxy-set forwarded scheme when present.
-	if fp := r.Header.Get("X-Forwarded-Proto"); fp != "" {
+	// Respect a reverse-proxy-set forwarded scheme when present, but only if
+	// it is exactly "http" or "https". Anything else (malformed values,
+	// injected schemes such as "javascript:", CRLF) is ignored and the
+	// request's own scheme is kept — matches the http/https-only posture
+	// enforced elsewhere in this project by validateSelfBuildURL().
+	if fp := r.Header.Get("X-Forwarded-Proto"); fp == "http" || fp == "https" {
 		scheme = fp
 	}
 	return scheme + "://" + r.Host

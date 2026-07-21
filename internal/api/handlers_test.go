@@ -214,6 +214,74 @@ func TestAgentCardDeclaresAuthWhenConfigured(t *testing.T) {
 	}
 }
 
+// TestRequestBaseURLRejectsBogusForwardedProto asserts that an
+// X-Forwarded-Proto value other than exactly "http" or "https" is ignored,
+// falling back to the request's own scheme, rather than being passed through
+// into supportedInterfaces[].url. Guards against malformed/injected schemes
+// (e.g. "javascript:", CRLF) reaching the served card — matches the
+// http/https-only posture enforced elsewhere in this project by
+// validateSelfBuildURL().
+func TestRequestBaseURLRejectsBogusForwardedProto(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"valid https is honored", "https", "https://directory.example.invalid"},
+		{"valid http is honored", "http", "http://directory.example.invalid"},
+		{"javascript scheme is ignored", "javascript:alert(1)", "http://directory.example.invalid"},
+		{"CRLF injection is ignored", "http\r\nX-Injected: yes", "http://directory.example.invalid"},
+		{"arbitrary garbage is ignored", "ftp", "http://directory.example.invalid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-card.json/reviewer", nil)
+			req.Host = "directory.example.invalid"
+			req.Header.Set("X-Forwarded-Proto", tc.header)
+			if got := requestBaseURL(req); got != tc.want {
+				t.Errorf("requestBaseURL: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAgentCardIgnoresBogusForwardedProtoEndToEnd asserts the handler-level
+// behavior: a bogus X-Forwarded-Proto must not leak into the served card's
+// supportedInterfaces[].url.
+func TestAgentCardIgnoresBogusForwardedProtoEndToEnd(t *testing.T) {
+	s := &fakeStore{agents: map[string]store.Agent{"reviewer": newTestAgent()}}
+	h := New(s, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-card.json/reviewer", nil)
+	req.Host = "directory.example.invalid"
+	req.Header.Set("X-Forwarded-Proto", "javascript:alert(1)")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var card map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &card); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	ifaces, ok := card["supportedInterfaces"].([]any)
+	if !ok || len(ifaces) != 1 {
+		t.Fatalf("expected 1 supportedInterfaces entry, got %v", card["supportedInterfaces"])
+	}
+	iface, ok := ifaces[0].(map[string]any)
+	if !ok {
+		t.Fatalf("supportedInterfaces[0] is not an object: %v", ifaces[0])
+	}
+	if got := iface["url"]; got != "http://directory.example.invalid/v1/agents/reviewer" {
+		t.Errorf("supportedInterfaces[0].url: got %v, want fallback to http scheme", got)
+	}
+}
+
 // TestAgentCardNotFound preserves existing not-found behavior.
 func TestAgentCardNotFound(t *testing.T) {
 	s := &fakeStore{agents: map[string]store.Agent{}}

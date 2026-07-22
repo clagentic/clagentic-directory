@@ -88,6 +88,7 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 | [docs/SELF-BUILD.md](docs/SELF-BUILD.md) | Self-build mechanisms (MCP, source watch, usage inference) |
 | [docs/A2A-COMPAT.md](docs/A2A-COMPAT.md) | A2A AgentCard compatibility |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security and auth notes |
+| [docs/SESSION-HOOKS.md](docs/SESSION-HOOKS.md) | Optional Claude Code SessionStart hook (dispatch-discipline) |
 
 ## Support
 

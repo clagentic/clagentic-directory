@@ -15,20 +15,51 @@ DISPATCH DEFAULT (the process this hook enforces):
   - Teammates (Agent Teams) are an explicit opt-in, not the default.
   - A2A is future / gated.
 
+GATING — three states, so the directive fires only for sessions actually
+operating under agent/crew dispatch, and stays silent for plain chat
+sessions (build-to-share: no workspace-specific detection heuristic):
+
+  1. auto (default, CLAGENTIC_DISPATCH_MODE unset or "auto"):
+     The hook reads its OWN SessionStart hook payload from stdin (JSON) and
+     checks the `agent_type` field. This is the harness's own built-in
+     signal for "this session was started as a named agent," emitted by
+     the same harness mechanism regardless of which crew/deployment is
+     running on top of it. ANY non-empty `agent_type` value counts as an
+     agent session — the hook does NOT validate it against a roster, a
+     `.crew/` directory, or any other workspace-specific convention. That
+     is a deliberate portability choice: this is a released shared tool,
+     and baking one install's crew-registry layout into it would break
+     every other install. Empty/absent `agent_type`, or stdin that is
+     empty/unparseable JSON, is treated as a vanilla session: emit
+     NOTHING, exit 0. No directive, no degraded notice, no directory probe
+     — a plain chat session should never be nagged or even see this hook
+     do work.
+  2. always (CLAGENTIC_DISPATCH_MODE=always):
+     Ignore the payload; fire the directive on every session, exactly like
+     the hook's original unconditional behavior. For installs that want
+     the directive everywhere regardless of session type.
+  3. off (CLAGENTIC_DISPATCH_MODE=off):
+     Never fire the directive, regardless of payload. Full opt-out.
+
+  Any other CLAGENTIC_DISPATCH_MODE value falls back to "auto".
+
 FAIL-OPEN, VERBOSE — by contract (operator directive 2026-06-15):
   - This hook NEVER fails closed: it never blocks or aborts a session.
-  - This hook NEVER fails open SILENTLY: every run states which branch it
-    took. If the directory is unreachable, the session still starts AND a
-    loud notice says so, why, and what to check — so agent selection is
-    never operating blind without the operator knowing.
+  - This hook NEVER fails open SILENTLY when it decides to emit the
+    directive: every such run states which branch it took. If the
+    directory is unreachable, the session still starts AND a loud notice
+    says so, why, and what to check — so agent selection is never
+    operating blind without the operator knowing. (A vanilla session that
+    is gated to silence is not a failure — it is the intended no-op.)
 
-Both outcomes are emitted as SessionStart additionalContext so they are
-visible to the model (and, via the directive, to the operator who is told
-to surface them).
+Both directive outcomes (healthy/degraded) are emitted as SessionStart
+additionalContext so they are visible to the model (and, via the
+directive, to the operator who is told to surface them).
 
 Parameterized (build-to-share): no hardcoded host beyond the documented
 default. Override with CLAGENTIC_DIRECTORY_URL. Optional bearer token via
-CLAGENTIC_DIRECTORY_TOKEN (auth is disabled on local installs).
+CLAGENTIC_DIRECTORY_TOKEN (auth is disabled on local installs). Dispatch
+gating override via CLAGENTIC_DISPATCH_MODE (auto|always|off, see above).
 """
 
 from __future__ import annotations
@@ -42,6 +73,35 @@ import urllib.request
 # Documented default (clagentic-directory docs/DEPLOY.md: --listen :8444).
 _DEFAULT_URL = "http://localhost:8444"
 _HEALTH_TIMEOUT_S = 2.0
+
+# CLAGENTIC_DISPATCH_MODE values (see module docstring "GATING").
+_MODE_AUTO = "auto"
+_MODE_ALWAYS = "always"
+_MODE_OFF = "off"
+_VALID_MODES = frozenset({_MODE_AUTO, _MODE_ALWAYS, _MODE_OFF})
+
+
+def _dispatch_mode() -> str:
+    """Read CLAGENTIC_DISPATCH_MODE, defaulting to 'auto' for unset/unknown values."""
+    raw = os.environ.get("CLAGENTIC_DISPATCH_MODE", "").strip().lower()
+    return raw if raw in _VALID_MODES else _MODE_AUTO
+
+
+def _read_payload_agent_type(stream) -> str:
+    """Read the SessionStart hook JSON payload from stream, return agent_type.
+
+    Fail-open: empty/unparseable stdin (or any other read error) yields ''
+    so the caller treats it as a vanilla (silent) session rather than
+    raising or falling back to firing the directive.
+    """
+    try:
+        raw = stream.read()
+        if not raw or not raw.strip():
+            return ""
+        payload = json.loads(raw)
+        return str(payload.get("agent_type") or "").strip()
+    except Exception:
+        return ""
 
 
 def _directory_base_url() -> str:
@@ -101,7 +161,23 @@ def _emit(content: str) -> None:
     }))
 
 
-def main() -> None:
+def _should_fire(mode: str, agent_type: str) -> bool:
+    """Decide whether the dispatch directive should fire, per CLAGENTIC_DISPATCH_MODE.
+
+    auto (default): fire only when agent_type (from the hook's own payload) is
+      non-empty — i.e. this is an agent/crew-dispatched session, not a plain one.
+    always: fire unconditionally (today's original, pre-gating behavior).
+    off: never fire.
+    """
+    if mode == _MODE_ALWAYS:
+        return True
+    if mode == _MODE_OFF:
+        return False
+    return bool(agent_type)
+
+
+def _run_directive() -> None:
+    """Emit the healthy/degraded/error directive. Always exits 0 (fail-open)."""
     base_url = _directory_base_url()
     try:
         ok, detail = _probe_health(base_url)
@@ -124,6 +200,19 @@ def main() -> None:
             f"directory: {type(e).__name__}: {e}. Surface to operator."
         )
         print(f"[dispatch-discipline] hook error (failed open): {e}", file=sys.stderr)
+
+
+def main() -> None:
+    mode = _dispatch_mode()
+    agent_type = _read_payload_agent_type(sys.stdin) if mode == _MODE_AUTO else ""
+    if _should_fire(mode, agent_type):
+        _run_directive()
+    else:
+        print(
+            f"[dispatch-discipline] mode={mode} agent_type={agent_type!r} — vanilla "
+            "session, staying silent",
+            file=sys.stderr,
+        )
     # Always exit 0 — never block a session.
     sys.exit(0)
 

@@ -46,17 +46,36 @@ agents that used a removed value would silently break at `FindByCapability()` ca
 An intent is a signal that routes work to an agent. It answers: "what action or event happened?"
 Intents are matched by `FindByCapability(intent...)` to find agents that handle a given intent.
 
-`FindByCapability` resolves in three tiers, each run only if the prior tier found nothing:
+Every raw query intent is first normalized (lowercased, whitespace and underscores collapsed
+to hyphens — see `normalizeIntent` in `internal/store/match.go`) before any tier runs, so NL
+phrasings like `write code` or `write_code` resolve the same agent as the canonical
+`write-code` token.
 
-1. **Exact match** — a capability declares the queried intent directly in `triggers.intents`.
-2. **Synonym match** — the queried intent aliases to a canonical intent (see the synonym
-   table in `internal/store/match.go`) that a capability declares. Covers natural dispatcher
-   queries like `build`, `implement`, `review`, or `investigate` that don't match the
-   canonical vocabulary term verbatim.
-3. **Role match** — the queried value equals an agent's optional `identity.role`
+`FindByCapability` then resolves in three tiers, each run only if the prior tier found nothing:
+
+1. **Exact match** — a capability declares the (normalized) queried intent directly in
+   `triggers.intents`.
+2. **Synonym match** — the (normalized) queried intent aliases to a canonical intent (see the
+   synonym table in `internal/store/match.go`) that a capability declares. Covers natural
+   dispatcher queries like `build`, `implement`, `review`, or `investigate` that don't match
+   the canonical vocabulary term verbatim.
+3. **Role match** — the (normalized) queried value equals an agent's optional `identity.role`
    (`builder`, `reviewer`, `merger`, `researcher`, `ops`, `diagnostician`). Lets a caller
    resolve `/v1/find?intent=builder` to whichever agent declares that role, independent of
    its specific intent vocabulary.
+
+### Ranking within a tier
+
+When multiple agents match within the same tier (e.g. two agents both declare the `research`
+intent), results are ordered deterministically by `rankAgents` (`internal/store/match.go`),
+not by Go's randomized map iteration order:
+
+1. Agents carrying the `trusted` trust label sort ahead of agents that don't. This surfaces
+   the canonical Layer-2 crew agent ahead of an external-model or external-source fallback
+   engine that independently registers the same intent (e.g. `prax`, `trusted`, ranks ahead
+   of `gemini-researcher`, `external-model`, for `intent=research`).
+2. Ties within the same rank break by agent name, ascending, so callers taking `result[0]`
+   get a reproducible answer across calls and across process restarts.
 
 | Intent | Semantics | When to use |
 |--------|-----------|-------------|

@@ -43,7 +43,8 @@ merge_allowed: true
 #
 merge_requirements:
   tests_pass: true
-  ci_pass: true
+  # Fresh repo, no remote/CI yet. Flip to true once CI is wired.
+  ci_pass: false
   # max_files_changed: 50   # Escalate if a PR touches more than N files
 
 # -----------------------------------------------------------------------

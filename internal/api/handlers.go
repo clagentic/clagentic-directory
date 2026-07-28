@@ -117,15 +117,26 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "one of intent, conversation_kind, or after_agent is required"})
 		return
 	}
-	if len(agents) == 0 {
-		writeJSON(w, http.StatusOK, emptyFindResult())
-		return
-	}
 	out := make([]map[string]any, 0, len(agents))
 	for _, a := range agents {
 		out = append(out, agentToMap(a))
 	}
-	writeJSON(w, http.StatusOK, out)
+	if len(out) == 0 {
+		writeJSON(w, http.StatusOK, emptyFindResult())
+		return
+	}
+	writeJSON(w, http.StatusOK, findResult(out))
+}
+
+// findResult wraps a non-empty /v1/find match list in the same envelope
+// shape emptyFindResult uses for the no-match case, so callers get one
+// consistent response shape ({"agents": [...]}) regardless of whether the
+// query matched (PEACHES amos.code-craft.13, PR #18 comment 5107685720: the
+// success path previously returned a bare array while the miss path
+// returned the envelope, so callers had to branch on shape to parse the
+// response).
+func findResult(agents []map[string]any) map[string]any {
+	return map[string]any{"agents": agents}
 }
 
 // emptyFindResult is the response body /v1/find returns when no agent

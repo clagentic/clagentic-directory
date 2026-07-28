@@ -69,9 +69,16 @@ phrasings like `write code` or `write_code` resolve the same agent as the canoni
    `internal/store/bm25.go`). Deterministic, no network call, no model inference. This is the
    escape hatch for queries that describe a capability in words the registry's closed intent
    enum doesn't cover — it reads the description text that was always there instead of
-   requiring every possible phrasing to be pre-enumerated in `intentSynonyms`. `/v1/find`
-   still returns a structured `{"agents": [], "suggestion": "..."}` body (never a bare `[]`)
-   when even Tier 4 finds no lexical overlap.
+   requiring every possible phrasing to be pre-enumerated in `intentSynonyms`.
+
+`/v1/find` always returns a JSON object of the form `{"agents": [...]}`, never a bare array,
+in both the match and no-match cases (`internal/api/handlers.go`, `findResult` /
+`emptyFindResult`) — a caller always reads `response.agents`. On a match, `agents` holds the
+ranked result list and `suggestion` is absent. On no match, `agents` is `[]` and a `suggestion`
+field explains that even the Tier 4 BM25 fallback found no lexical overlap. The published Go
+client (`client/go/client.go`) decodes this envelope and returns `resp.Agents` to callers of
+`FindByIntent`/`FindByConversationKind`/`FindByAfterAgent`, so Go consumers of the client
+package are unaffected by the wire-level envelope.
 
 Tier 4's recall is measured against a committed golden set
 (`internal/store/golden_set.go`, `internal/store/golden_test.go`) rather than asserted by

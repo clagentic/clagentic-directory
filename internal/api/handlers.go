@@ -117,11 +117,31 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "one of intent, conversation_kind, or after_agent is required"})
 		return
 	}
+	if len(agents) == 0 {
+		writeJSON(w, http.StatusOK, emptyFindResult())
+		return
+	}
 	out := make([]map[string]any, 0, len(agents))
 	for _, a := range agents {
 		out = append(out, agentToMap(a))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// emptyFindResult is the response body /v1/find returns when no agent
+// matches, in any tier including the Tier 4 BM25 fallback (internal/store,
+// lr-dab7e0 acceptance criterion 4: /v1/find must never return a bare []).
+// A bare [] gives a caller no signal whether the query needs rephrasing or
+// the registry is simply missing that capability; this makes the "no match"
+// case a distinguishable, structured response instead of an empty array
+// that looks identical to "not implemented yet" or a transient store error.
+func emptyFindResult() map[string]any {
+	return map[string]any{
+		"agents": []map[string]any{},
+		"suggestion": "no agent matched this query, including the description-level " +
+			"BM25 fallback; try GET /v1/agents to browse the full registry, or a " +
+			"broader/differently-worded intent",
+	}
 }
 
 func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {

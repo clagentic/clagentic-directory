@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/clagentic/clagentic-directory/internal/store"
@@ -279,6 +280,44 @@ func TestAgentCardIgnoresBogusForwardedProtoEndToEnd(t *testing.T) {
 	}
 	if got := iface["url"]; got != "http://directory.example.invalid/v1/agents/reviewer" {
 		t.Errorf("supportedInterfaces[0].url: got %v, want fallback to http scheme", got)
+	}
+}
+
+// TestFindNeverReturnsBareEmptyArray asserts /v1/find's "no match" response
+// is a structured object, not a bare [] (lr-dab7e0 acceptance criterion 4).
+// A bare [] gives a caller no signal distinguishing "genuinely no match" from
+// a transient/misconfigured store; this locks in emptyFindResult's shape at
+// the HTTP boundary regardless of which store.Store implementation or match
+// tier produced the empty result.
+func TestFindNeverReturnsBareEmptyArray(t *testing.T) {
+	s := &fakeStore{agents: map[string]store.Agent{}} // FindByCapability returns nil (see fakeStore)
+	h := New(s, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/find?intent=no-such-intent", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.Bytes()
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "[]" {
+		t.Fatalf("/v1/find returned a bare empty array, violating the never-bare-[] contract: %s", trimmed)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("expected a JSON object response, got unparseable/non-object body: %v (%s)", err, trimmed)
+	}
+	if _, present := result["agents"]; !present {
+		t.Errorf("expected an \"agents\" key in the empty-result envelope, got %v", result)
+	}
+	if _, present := result["suggestion"]; !present {
+		t.Errorf("expected a \"suggestion\" key in the empty-result envelope, got %v", result)
 	}
 }
 

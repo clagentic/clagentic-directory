@@ -85,29 +85,41 @@ func (c *Client) GetAgent(name string) (Agent, error) {
 	return agent, nil
 }
 
+// findResponse is the wire shape of GET /v1/find: always a JSON object
+// carrying an "agents" array, never a bare array (server-side contract,
+// internal/api/handlers.go findResult/emptyFindResult — PEACHES
+// amos.code-craft.13, PR #18 comment 5107685720: the match and no-match
+// paths used to differ in shape, which this client previously encoded by
+// decoding straight into []Agent; that broke once the server made both
+// paths consistent). Suggestion is only populated on a no-match response.
+type findResponse struct {
+	Agents     []Agent `json:"agents"`
+	Suggestion string  `json:"suggestion,omitempty"`
+}
+
 // FindByIntent returns agents that handle the given intent.
 func (c *Client) FindByIntent(intent string) ([]Agent, error) {
-	var agents []Agent
-	if err := c.get("/v1/find?intent="+url.QueryEscape(intent), &agents); err != nil {
+	var resp findResponse
+	if err := c.get("/v1/find?intent="+url.QueryEscape(intent), &resp); err != nil {
 		return nil, err
 	}
-	return agents, nil
+	return resp.Agents, nil
 }
 
 // FindByConversationKind returns agents whose capabilities include the given kind.
 func (c *Client) FindByConversationKind(kind string) ([]Agent, error) {
-	var agents []Agent
-	if err := c.get("/v1/find?conversation_kind="+url.QueryEscape(kind), &agents); err != nil {
+	var resp findResponse
+	if err := c.get("/v1/find?conversation_kind="+url.QueryEscape(kind), &resp); err != nil {
 		return nil, err
 	}
-	return agents, nil
+	return resp.Agents, nil
 }
 
 // FindByAfterAgent returns agents that sequence after the given agent.
 func (c *Client) FindByAfterAgent(agentName string) ([]Agent, error) {
-	var agents []Agent
-	if err := c.get("/v1/find?after_agent="+url.QueryEscape(agentName), &agents); err != nil {
+	var resp findResponse
+	if err := c.get("/v1/find?after_agent="+url.QueryEscape(agentName), &resp); err != nil {
 		return nil, err
 	}
-	return agents, nil
+	return resp.Agents, nil
 }

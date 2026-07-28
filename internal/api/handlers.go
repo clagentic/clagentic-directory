@@ -121,7 +121,38 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) {
 	for _, a := range agents {
 		out = append(out, agentToMap(a))
 	}
-	writeJSON(w, http.StatusOK, out)
+	if len(out) == 0 {
+		writeJSON(w, http.StatusOK, emptyFindResult())
+		return
+	}
+	writeJSON(w, http.StatusOK, findResult(out))
+}
+
+// findResult wraps a non-empty /v1/find match list in the same envelope
+// shape emptyFindResult uses for the no-match case, so callers get one
+// consistent response shape ({"agents": [...]}) regardless of whether the
+// query matched (PEACHES amos.code-craft.13, PR #18 comment 5107685720: the
+// success path previously returned a bare array while the miss path
+// returned the envelope, so callers had to branch on shape to parse the
+// response).
+func findResult(agents []map[string]any) map[string]any {
+	return map[string]any{"agents": agents}
+}
+
+// emptyFindResult is the response body /v1/find returns when no agent
+// matches, in any tier including the Tier 4 BM25 fallback (internal/store,
+// lr-dab7e0 acceptance criterion 4: /v1/find must never return a bare []).
+// A bare [] gives a caller no signal whether the query needs rephrasing or
+// the registry is simply missing that capability; this makes the "no match"
+// case a distinguishable, structured response instead of an empty array
+// that looks identical to "not implemented yet" or a transient store error.
+func emptyFindResult() map[string]any {
+	return map[string]any{
+		"agents": []map[string]any{},
+		"suggestion": "no agent matched this query, including the description-level " +
+			"BM25 fallback; try GET /v1/agents to browse the full registry, or a " +
+			"broader/differently-worded intent",
+	}
 }
 
 func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {

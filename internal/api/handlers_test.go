@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/clagentic/clagentic-directory/internal/store"
@@ -281,6 +282,108 @@ func TestAgentCardIgnoresBogusForwardedProtoEndToEnd(t *testing.T) {
 		t.Errorf("supportedInterfaces[0].url: got %v, want fallback to http scheme", got)
 	}
 }
+
+// TestFindNeverReturnsBareEmptyArray asserts /v1/find's "no match" response
+// is a structured object, not a bare [] (lr-dab7e0 acceptance criterion 4).
+// A bare [] gives a caller no signal distinguishing "genuinely no match" from
+// a transient/misconfigured store; this locks in emptyFindResult's shape at
+// the HTTP boundary regardless of which store.Store implementation or match
+// tier produced the empty result.
+func TestFindNeverReturnsBareEmptyArray(t *testing.T) {
+	s := &fakeStore{agents: map[string]store.Agent{}} // FindByCapability returns nil (see fakeStore)
+	h := New(s, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/find?intent=no-such-intent", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.Bytes()
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "[]" {
+		t.Fatalf("/v1/find returned a bare empty array, violating the never-bare-[] contract: %s", trimmed)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("expected a JSON object response, got unparseable/non-object body: %v (%s)", err, trimmed)
+	}
+	if _, present := result["agents"]; !present {
+		t.Errorf("expected an \"agents\" key in the empty-result envelope, got %v", result)
+	}
+	if _, present := result["suggestion"]; !present {
+		t.Errorf("expected a \"suggestion\" key in the empty-result envelope, got %v", result)
+	}
+}
+
+// TestFindMatchUsesSameEnvelopeAsEmptyResult asserts /v1/find's match
+// (success) path returns the same {"agents": [...]} object envelope as the
+// no-match path, rather than a bare array (PEACHES amos.code-craft.13, PR
+// #18 comment 5107685720: prior to this test the success path returned a
+// bare JSON array while emptyFindResult returned a structured object, so
+// callers had to branch on response shape depending on whether the query
+// matched). Regression test for that shape divergence.
+func TestFindMatchUsesSameEnvelopeAsEmptyResult(t *testing.T) {
+	matched := store.Agent{
+		Name:        "reviewer",
+		Version:     "1.0.0",
+		Description: "Performs structured code review on pull requests and commits.",
+		Capabilities: []store.Capability{
+			{
+				ID:   "review-pr",
+				Name: "Review Pull Request",
+				Triggers: store.Triggers{
+					Intents: []string{"code-review"},
+				},
+			},
+		},
+	}
+	s := &matchingFakeStore{fakeStore: fakeStore{agents: map[string]store.Agent{"reviewer": matched}}, matches: []store.Agent{matched}}
+	h := New(s, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/find?intent=code-review", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.Bytes()
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "[") {
+		t.Fatalf("/v1/find match path returned a bare array instead of the {\"agents\": [...]} envelope: %s", trimmed)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("expected a JSON object response, got unparseable/non-object body: %v (%s)", err, trimmed)
+	}
+	agents, ok := result["agents"].([]any)
+	if !ok {
+		t.Fatalf("expected an \"agents\" array key in the match envelope, got %v", result)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent in the match envelope, got %d: %v", len(agents), agents)
+	}
+}
+
+// matchingFakeStore extends fakeStore so FindByCapability returns a
+// caller-supplied match list, letting tests exercise /v1/find's non-empty
+// (match) path.
+type matchingFakeStore struct {
+	fakeStore
+	matches []store.Agent
+}
+
+func (m *matchingFakeStore) FindByCapability(intents ...string) []store.Agent { return m.matches }
 
 // TestAgentCardNotFound preserves existing not-found behavior.
 func TestAgentCardNotFound(t *testing.T) {

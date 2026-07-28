@@ -51,7 +51,7 @@ to hyphens — see `normalizeIntent` in `internal/store/match.go`) before any ti
 phrasings like `write code` or `write_code` resolve the same agent as the canonical
 `write-code` token.
 
-`FindByCapability` then resolves in three tiers, each run only if the prior tier found nothing:
+`FindByCapability` then resolves in four tiers, each run only if the prior tier found nothing:
 
 1. **Exact match** — a capability declares the (normalized) queried intent directly in
    `triggers.intents`.
@@ -63,6 +63,26 @@ phrasings like `write code` or `write_code` resolve the same agent as the canoni
    (`builder`, `reviewer`, `merger`, `researcher`, `ops`, `diagnostician`). Lets a caller
    resolve `/v1/find?intent=builder` to whichever agent declares that role, independent of
    its specific intent vocabulary.
+4. **BM25 fallback** (lr-dab7e0) — when tiers 1-3 return nothing, ranks every agent by Okapi
+   BM25 score over agent name + description + capability name/id/description against the raw
+   (unnormalized) query tokens, and returns the top 5 agents with a nonzero score (see
+   `internal/store/bm25.go`). Deterministic, no network call, no model inference. This is the
+   escape hatch for queries that describe a capability in words the registry's closed intent
+   enum doesn't cover — it reads the description text that was always there instead of
+   requiring every possible phrasing to be pre-enumerated in `intentSynonyms`. `/v1/find`
+   still returns a structured `{"agents": [], "suggestion": "..."}` body (never a bare `[]`)
+   when even Tier 4 finds no lexical overlap.
+
+Tier 4's recall is measured against a committed golden set
+(`internal/store/golden_set.go`, `internal/store/golden_test.go`) rather than asserted by
+inspection — see that test file's doc comments for the current measured recall@1/recall@3/MRR
+and the CI regression gate (`TestGoldenSetRegressionGate`) that fails the build if recall@1
+drops more than 2 percentage points from the measured baseline. Do not "fix" a Tier 4 recall
+miss by adding an entry to `intentSynonyms`: that reintroduces the exact defect this tier
+exists to replace (a synonym table that only grows reactively to specific complaints — see
+lr-9b7435, lr-044f4d, lr-dab7e0). A genuine lexical gap belongs in the golden set as a
+documented miss, or in a registry-content fix to the affected agent's description
+(clagentic-config, out of scope for this repo).
 
 ### Ranking within a tier
 

@@ -132,8 +132,17 @@ func goldenFixtureAgents() map[string]Agent {
 			}},
 		},
 		{
-			Name:        "ollama",
-			Description: "Lightweight local inference agent backed by a self-hosted llama.cpp server (Vulkan GPU) and Ollama (CPU) on ollama.akuehner.com. Best for cheap/offline tasks: classification, summarization, format conversion, embeddings/RAG, and code snippets where API cost matters and quality requirements are modest.",
+			Name: "ollama",
+			// Description is a hand-synced copy of the live clagentic-config
+			// entry with the deployment-specific internal hostname replaced by
+			// a generic descriptor (BOBBIE bobbie.bleed.1, PR #18 comment
+			// 5107681580): this file ships in the production binary and this
+			// repo is public, so the real internal FQDN must never appear here
+			// even though it carries no credential material. The replacement
+			// preserves every token the BM25 matcher scores against (local
+			// inference, self-hosted, llama.cpp, Vulkan GPU, Ollama,
+			// embeddings/RAG, phi4) — only the FQDN is redacted.
+			Description: "Lightweight local inference agent backed by a self-hosted llama.cpp server (Vulkan GPU) and Ollama (CPU) on an internal self-hosted host. Best for cheap/offline tasks: classification, summarization, format conversion, embeddings/RAG, and code snippets where API cost matters and quality requirements are modest.",
 			Role:        "researcher",
 			TrustLabels: []string{"local-model", "read-only"},
 			Capabilities: []Capability{{

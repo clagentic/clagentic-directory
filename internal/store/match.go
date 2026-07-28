@@ -55,6 +55,12 @@ func normalizeIntent(s string) string {
 	return s
 }
 
+// bm25TopN caps how many agents Tier 4 returns. /v1/find must never return a
+// bare [] (lr-dab7e0 acceptance criterion 4); this also keeps the fallback
+// tier from dumping the entire registry when a query is so generic it
+// scores against most agents' descriptions.
+const bm25TopN = 5
+
 // findByCapability implements the shared FindByCapability matching contract
 // for both FileStore and GitStore. It is tiered:
 //  1. Exact match: an agent capability declares one of the raw query intents
@@ -62,10 +68,18 @@ func normalizeIntent(s string) string {
 //  2. Synonym match: a normalized query intent aliases (via intentSynonyms)
 //     to a canonical intent an agent capability declares.
 //  3. Role match: a normalized query intent equals an agent's declared Role.
+//  4. BM25 fallback: when tiers 1-3 return nothing, ranks every agent by
+//     Okapi BM25 score over agent name + description + capability
+//     name/id/description against the raw query tokens, and returns the
+//     top bm25TopN agents with a nonzero score (see bm25.go). Deterministic,
+//     no network call, no model inference (lr-dab7e0 acceptance criterion 7).
 //
 // Each tier only runs if the prior tier produced no results, so an exact
-// match is never diluted by broader fallback matches. Within a tier, results
-// are ranked deterministically by rankAgents.
+// match is never diluted by broader fallback matches, and every query that
+// resolves via tiers 1-3 today keeps resolving at the same rank
+// (lr-dab7e0 acceptance criterion 3). Within tiers 1-3, results are ranked
+// deterministically by rankAgents; Tier 4 ranks by BM25 score with the same
+// canonical-rank/name tie-break.
 func findByCapability(agents map[string]Agent, intents ...string) []Agent {
 	normalized := make([]string, len(intents))
 	for i, in := range intents {
@@ -77,7 +91,28 @@ func findByCapability(agents map[string]Agent, intents ...string) []Agent {
 	if out := matchByIntentSet(agents, normalized, true); len(out) > 0 {
 		return rankAgents(out)
 	}
-	return rankAgents(matchByRole(agents, normalized))
+	if out := matchByRole(agents, normalized); len(out) > 0 {
+		return rankAgents(out)
+	}
+	return bm25Fallback(agents, intents)
+}
+
+// bm25Fallback runs Tier 4: BM25 ranking over the raw (non-normalized)
+// intents. The raw form is used (rather than normalized) because BM25
+// tokenizes on word boundaries anyway (see tokenize in bm25.go) and the raw
+// query preserves natural phrasing spacing that normalizeIntent's
+// hyphen-collapsing would otherwise flatten before tokenization.
+func bm25Fallback(agents map[string]Agent, intents []string) []Agent {
+	var queryTokens []string
+	for _, in := range intents {
+		queryTokens = append(queryTokens, tokenize(in)...)
+	}
+	corpus := buildBM25Corpus(agents)
+	ranked := bm25Score(corpus, queryTokens)
+	if len(ranked) > bm25TopN {
+		ranked = ranked[:bm25TopN]
+	}
+	return ranked
 }
 
 // matchByIntentSet matches agent capability intents against the (already

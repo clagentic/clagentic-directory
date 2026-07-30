@@ -5,6 +5,17 @@
 merge:
   merge_requirements:
     ci_pass: false
+  # lr-d3969e: required_reviewer_roles absence is fail-OPEN (unlike
+  # authorized_roles, which is fail-closed on absence) — a merge could land
+  # with zero reviewer/security verdict. This repo's post_merge_steps below
+  # perform a live production deploy on every merge (rebuild + atomic binary
+  # replace + `systemctl restart clagentic-directory.service`), so an
+  # unreviewed merge here restarts a Tier 1 daemon. Declaring the gate here
+  # closes that window. No roles: section is declared in this repo, so
+  # loadout's doctor cross-check falls back to DEFAULT_ROLE_VERBS
+  # (builder/reviewer/security/merger/lead); reviewer/security are role
+  # tokens from that taxonomy, not agent identities.
+  required_reviewer_roles: [reviewer, security]
   # lr-2e0a65: without post_merge_steps, loadout-merge runs ZERO post-merge
   # actions for this repo — a merged PR lands code on main but the running
   # clagentic-directory.service keeps serving the old build (PR #9 merged

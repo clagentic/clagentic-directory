@@ -2,9 +2,52 @@
 # "Merge-gate config homes" section). Kept minimal: this repo has no CI runner
 # wired up yet, so the merge gate must not block on a CI signal that will
 # never arrive.
+#
+# lr-d3969e: this repo declares its own `roles:` section (below) because
+# `security` is NOT a member of clagentic_loadout.provisioning.roles's
+# DEFAULT_ROLE_VERBS (that reference mapping covers only builder/reviewer/
+# merger/lead — see roles.py:92-97). A repo's own `roles:` section REPLACES
+# the default mapping entirely, it does not merge with it (roles.py:34-39),
+# so every role this repo actually needs is enumerated here, not just the
+# one being added.
+roles:
+  builder:
+    - push
+  reviewer:
+    - git-host-api
+    - review-post
+    - stage-body
+  merger:
+    - merge
+    - push
+    - release-dispatch
+    - release-detect
+  lead:
+    - git-host-api
+  # security's job is the same shape as reviewer's -- read one PR diff and
+  # post a single verdict comment (BOBBIE's pre-merge security-audit gate)
+  # -- so it gets the same verb set as reviewer: read access to the PR
+  # (git-host-api), post the verdict (review-post), and stage that verdict's
+  # body the same way every other role-with-a-body-comment does
+  # (stage-body). security never merges, never pushes code, and never runs
+  # a wait/poll primitive.
+  security:
+    - git-host-api
+    - review-post
+    - stage-body
 merge:
   merge_requirements:
     ci_pass: false
+  # lr-d3969e: required_reviewer_roles absence is fail-OPEN (unlike
+  # authorized_roles, which is fail-closed on absence) — a merge could land
+  # with zero reviewer/security verdict. This repo's post_merge_steps below
+  # perform a live production deploy on every merge (rebuild + atomic binary
+  # replace + `systemctl restart clagentic-directory.service`), so an
+  # unreviewed merge here restarts a Tier 1 daemon. Declaring the gate here
+  # closes that window. `security` is not in DEFAULT_ROLE_VERBS (see the
+  # `roles:` section above and its comment), so this repo declares its own
+  # `roles:` section rather than relying on the fallback taxonomy.
+  required_reviewer_roles: [reviewer, security]
   # lr-2e0a65: without post_merge_steps, loadout-merge runs ZERO post-merge
   # actions for this repo — a merged PR lands code on main but the running
   # clagentic-directory.service keeps serving the old build (PR #9 merged

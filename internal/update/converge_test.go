@@ -398,6 +398,16 @@ func TestSourceFailuresWriteNothing(t *testing.T) {
 	}
 }
 
+func TestInvalidPackageIsRejected(t *testing.T) {
+	for _, pkg := range []string{"-toolexec=x", "a b", "a\nb"} {
+		v := testValues(t)
+		v.Binary.Package = pkg
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "binary.package") {
+			t.Fatalf("package %q accepted: %v", pkg, err)
+		}
+	}
+}
+
 func TestInvalidSourceRefIsRejected(t *testing.T) {
 	for _, ref := range []string{"-upload-pack=x", "a b", "a\nb"} {
 		v := testValues(t)

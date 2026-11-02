@@ -215,8 +215,8 @@ func (v *Values) Validate() error {
 	if r := v.Binary.SourceRef; r != "" && (hasControl(r) || strings.ContainsAny(r, " \t") || strings.HasPrefix(r, "-")) {
 		add("binary.source_ref: %q must not contain whitespace or control characters or start with -", r)
 	}
-	if p := v.Binary.Package; p != "" && (hasControl(p) || strings.ContainsAny(p, " \t")) {
-		add("binary.package: %q contains whitespace or control characters", p)
+	if p := v.Binary.Package; p != "" && (hasControl(p) || strings.ContainsAny(p, " \t") || strings.HasPrefix(p, "-")) {
+		add("binary.package: %q must not contain whitespace or control characters or start with -", p)
 	}
 
 	v.validateDaemon(&errs)

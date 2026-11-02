@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +15,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/clagentic/clagentic-directory/internal/selfbuild"
 )
 
 // SchemaVersion is the only values-file schema this build understands.
@@ -212,7 +213,7 @@ func (v *Values) Validate() error {
 	v.validateDaemon(&errs)
 
 	if u := v.Readyz.URL; u != "" {
-		if err := checkHTTPURL(u); err != nil {
+		if err := selfbuild.ValidateSelfBuildURL(u, "readyz"); err != nil {
 			add("readyz.url: %v", err)
 		}
 	} else if v.ReadyzURL() == "" {
@@ -314,14 +315,14 @@ func (v *Values) validateDaemon(errs *[]string) {
 	}
 
 	if d.SelfBuildSourceWatchURL != "" {
-		if err := checkHTTPURL(d.SelfBuildSourceWatchURL); err != nil {
+		if err := selfbuild.ValidateSelfBuildURL(d.SelfBuildSourceWatchURL, "source-watch"); err != nil {
 			add("daemon.self_build_source_watch_url: %v", err)
 		}
 	} else if d.SelfBuildSourceWatchInterval != "" || d.SelfBuildSourceWatchWindow != "" {
 		add("daemon.self_build_source_watch_interval/window: require self_build_source_watch_url")
 	}
 	if d.SelfBuildUsageEventStoreURL != "" {
-		if err := checkHTTPURL(d.SelfBuildUsageEventStoreURL); err != nil {
+		if err := selfbuild.ValidateSelfBuildURL(d.SelfBuildUsageEventStoreURL, "usage-event-store"); err != nil {
 			add("daemon.self_build_usage_event_store_url: %v", err)
 		}
 	} else if d.SelfBuildUsageWindow != "" {
@@ -356,19 +357,4 @@ func hasControl(s string) bool {
 		}
 	}
 	return false
-}
-
-// checkHTTPURL mirrors the daemon's self-build URL rule: http or https with a host.
-func checkHTTPURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("parse error: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("unsupported scheme %q (must be http or https)", u.Scheme)
-	}
-	if u.Host == "" {
-		return errors.New("no host")
-	}
-	return nil
 }

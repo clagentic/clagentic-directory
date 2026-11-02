@@ -221,7 +221,7 @@ func TestAgentCardDeclaresAuthWhenConfigured(t *testing.T) {
 // into supportedInterfaces[].url. Guards against malformed/injected schemes
 // (e.g. "javascript:", CRLF) reaching the served card — matches the
 // http/https-only posture enforced elsewhere in this project by
-// validateSelfBuildURL().
+// selfbuild.ValidateSelfBuildURL().
 func TestRequestBaseURLRejectsBogusForwardedProto(t *testing.T) {
 	cases := []struct {
 		name   string

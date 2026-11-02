@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/clagentic/clagentic-directory/internal/selfbuild"
 )
 
 func TestExampleValuesFileIsValid(t *testing.T) {
@@ -144,5 +146,30 @@ func TestReadyzURLDerivation(t *testing.T) {
 	v.Readyz.URL = "https://dir.example.com/readyz"
 	if v.ReadyzURL() != "https://dir.example.com/readyz" {
 		t.Fatal("override ignored")
+	}
+}
+
+func TestValidateRejectsNonHTTPSelfBuildURL(t *testing.T) {
+	cases := []struct{ mechanism, raw string }{
+		{"source-watch", "file:///etc/passwd"},
+		{"usage-event-store", "ftp://example.invalid/x"},
+	}
+	for _, c := range cases {
+		v := testValues(t)
+		v.Daemon.SelfBuildBaseDir = "/b"
+		if c.mechanism == "source-watch" {
+			v.Daemon.SelfBuildSourceWatchURL = c.raw
+		} else {
+			v.Daemon.SelfBuildUsageEventStoreURL = c.raw
+		}
+		err := v.Validate()
+		if err == nil {
+			t.Fatalf("%s: non-http(s) URL accepted", c.mechanism)
+		}
+		// The message must be the shared rule's own text, not a local copy.
+		shared := selfbuild.ValidateSelfBuildURL(c.raw, c.mechanism)
+		if shared == nil || !strings.Contains(err.Error(), shared.Error()) {
+			t.Errorf("%s: err = %v, want it to contain %v", c.mechanism, err, shared)
+		}
 	}
 }

@@ -1,0 +1,53 @@
+# Example deployment values for `clagentic-directory update --values <file>`.
+# Copy to your own deployment-config repo and replace every placeholder.
+# Schema: docs/UPDATE.md. Unknown keys are rejected.
+schema_version: 1
+
+unit:
+  # name: clagentic-directory.service   # optional; this is the default
+  dir: /path/to/systemd/unit/dir        # where the unit file is written
+  user: serviceuser                     # unprivileged account that runs the daemon
+  env_file: /path/to/directory.env      # optional; e.g. CLAGENTIC_DIRECTORY_TOKEN
+
+binary:
+  install_path: /path/to/bin/clagentic-directory
+  source_dir: /path/to/clagentic-directory-checkout
+  # package: ./cmd/clagentic-directory  # optional; this is the default
+
+daemon:
+  # Git mode: the daemon keeps its own clone in registry_cache_dir and polls origin.
+  registry_source: git
+  registry_git_url: git@git.example.com:example-org/agent-registry.git
+  registry_git_ref: main
+  registry_git_subpath: registry/
+  registry_git_vocab: vocabulary.v1.yaml
+  registry_git_poll: 60s
+  registry_cache_dir: /path/to/cache/registry
+  registry_secret_keyfile: /path/to/registry-deploy-key
+  listen: ":8444"
+  log_level: info
+
+  # File mode instead of git mode:
+  # registry_source: file
+  # registry_dir: /path/to/registry
+  # vocab_file: /path/to/vocabulary.v1.yaml
+
+  # Self-build mechanisms (all optional, default off):
+  # self_build_base_dir: /path/to/self-build
+  # self_build_mcp_discovery: true
+  # self_build_source_watch_url: https://memory.example.com/api
+  # self_build_source_watch_interval: 60s
+  # self_build_source_watch_window: 5m
+  # self_build_usage_event_store_url: https://events.example.com/api
+  # self_build_usage_window: 1h
+
+readyz:
+  # url: http://127.0.0.1:8444/readyz       # default derived from daemon.listen
+  # token_file: /path/to/readyz-token       # bearer token, when the daemon enforces auth
+  timeout: 30s
+
+# Units this deployment replaces (for example an external registry-sync timer).
+# update stops and disables them. The tool's own unit is never touched.
+supersedes:
+  - registry-sync.timer
+  - registry-sync.service

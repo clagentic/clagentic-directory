@@ -125,9 +125,12 @@ func runInspect(args []string) int {
 }
 
 func main() {
-	// Subcommand dispatch: inspect runs standalone, before service flag parsing.
+	// Subcommand dispatch: inspect and update run standalone, before service flag parsing.
 	if len(os.Args) > 1 && os.Args[1] == "inspect" {
 		os.Exit(runInspect(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		os.Exit(runUpdate(os.Args[2:]))
 	}
 
 	var (

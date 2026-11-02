@@ -38,9 +38,10 @@ type Builder interface {
 // Source produces a private export of reviewed source. It never reads or
 // modifies the working tree, branch or index of srcDir.
 type Source interface {
-	// Export fetches ref (the remote default branch when empty) and exports
-	// that exact commit into a fresh private directory.
-	Export(srcDir, ref string) (*Export, error)
+	// Export fetches ref (the remote default branch when empty) from fetchURL,
+	// or from srcDir's origin when fetchURL is empty, and exports that exact
+	// commit into a fresh private directory.
+	Export(srcDir, fetchURL, ref string) (*Export, error)
 }
 
 // Export is a private tree holding one commit's files.

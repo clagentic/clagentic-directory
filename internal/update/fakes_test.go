@@ -143,12 +143,14 @@ type fakeSource struct {
 	err       error
 	commit    string
 	calls     []string // "srcDir@ref"
+	urls      []string
 	cleanups  int
 	exportDir string
 }
 
-func (f *fakeSource) Export(src, ref string) (*Export, error) {
+func (f *fakeSource) Export(src, fetchURL, ref string) (*Export, error) {
 	f.calls = append(f.calls, src+"@"+ref)
+	f.urls = append(f.urls, fetchURL)
 	if f.err != nil {
 		return nil, f.err
 	}

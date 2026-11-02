@@ -66,6 +66,10 @@ type BinaryValues struct {
 	// SourceRef is the ref built from, fetched from the checkout's origin.
 	// Empty means the remote's default branch.
 	SourceRef string `yaml:"source_ref"`
+	// SourceURL is the https:// or ssh:// URL fetched from. It comes from the
+	// reviewed values file; empty falls back to source_dir's origin, a file
+	// whoever owns the checkout can rewrite.
+	SourceURL string `yaml:"source_url"`
 	Package   string `yaml:"package"`
 }
 
@@ -214,6 +218,12 @@ func (v *Values) Validate() error {
 	reqAbs("binary.source_dir", v.Binary.SourceDir)
 	if r := v.Binary.SourceRef; r != "" && (hasControl(r) || strings.ContainsAny(r, " \t") || strings.HasPrefix(r, "-")) {
 		add("binary.source_ref: %q must not contain whitespace or control characters or start with -", r)
+	}
+	if v.Binary.SourceURL != "" {
+		// The URL is not echoed: it may carry credentials.
+		if err := ValidateFetchURL(v.Binary.SourceURL); err != nil {
+			add("binary.source_url: %v", err)
+		}
 	}
 	if p := v.Binary.Package; p != "" && (hasControl(p) || strings.ContainsAny(p, " \t") || strings.HasPrefix(p, "-")) {
 		add("binary.package: %q must not contain whitespace or control characters or start with -", p)

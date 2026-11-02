@@ -87,7 +87,7 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 	// Export the reviewed commit before anything is written. The build never
 	// sees source_dir's working tree, so whatever branch or uncommitted state
 	// a builder left there cannot reach a root-run binary.
-	exp, xerr := d.Source.Export(v.Binary.SourceDir, v.Binary.SourceRef)
+	exp, xerr := d.Source.Export(v.Binary.SourceDir, v.Binary.SourceURL, v.Binary.SourceRef)
 	if xerr != nil {
 		code := ExitApply
 		if errors.Is(xerr, ErrNotCheckout) {

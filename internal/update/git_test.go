@@ -62,6 +62,10 @@ func checkoutFixture(t *testing.T) (upstream, src string) {
 	return upstream, src
 }
 
+// testGit is the git source with the test-only file transport on: the
+// fixtures fetch from a local repository.
+func testGit() GitSource { return GitSource{Run: runGit, fileTransport: true} }
+
 func TestGitSourceExportsRemoteCommitNotWorkingTree(t *testing.T) {
 	upstream, src := checkoutFixture(t)
 	// The remote moves on after the clone; the export must follow it.
@@ -75,7 +79,7 @@ func TestGitSourceExportsRemoteCommitNotWorkingTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	exp, err := GitSource{Run: runGit}.Export(src, "")
+	exp, err := testGit().Export(src, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +121,7 @@ func TestGitSourceExplicitRefAndFailures(t *testing.T) {
 	writeFile(t, filepath.Join(upstream, "main.go"), "on main only\n")
 	gitRun(t, upstream, "commit", "--quiet", "-am", "main moves")
 
-	exp, err := GitSource{Run: runGit}.Export(src, "release")
+	exp, err := testGit().Export(src, "", "release")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +130,14 @@ func TestGitSourceExplicitRefAndFailures(t *testing.T) {
 		t.Fatalf("release export holds %q", got)
 	}
 
-	if _, err := (GitSource{Run: runGit}).Export(src, "no-such-ref"); err == nil || errors.Is(err, ErrNotCheckout) {
+	if _, err := testGit().Export(src, "", "no-such-ref"); err == nil || errors.Is(err, ErrNotCheckout) {
 		t.Fatalf("unknown ref: %v", err)
 	}
-	if _, err := (GitSource{Run: runGit}).Export(t.TempDir(), ""); !errors.Is(err, ErrNotCheckout) {
+	if _, err := testGit().Export(t.TempDir(), "", ""); !errors.Is(err, ErrNotCheckout) {
 		t.Fatalf("plain dir: %v", err)
 	}
 	gitRun(t, src, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone"))
-	if _, err := (GitSource{Run: runGit}).Export(src, ""); err == nil || errors.Is(err, ErrNotCheckout) {
+	if _, err := testGit().Export(src, "", ""); err == nil || errors.Is(err, ErrNotCheckout) {
 		t.Fatalf("fetch failure: %v", err)
 	}
 }
@@ -143,7 +147,7 @@ func TestGitSourceIgnoresInheritedRepositoryVariables(t *testing.T) {
 	// A post-merge step launched from a git hook carries these.
 	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "elsewhere"))
 	t.Setenv("GIT_WORK_TREE", t.TempDir())
-	exp, err := GitSource{Run: runGit}.Export(src, "")
+	exp, err := testGit().Export(src, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +166,7 @@ func gitConfigFailure(t *testing.T, err error, out string) error {
 		calls++
 		return out, err
 	}
-	_, xerr := GitSource{Run: run}.Export("/srv/src", "")
+	_, xerr := GitSource{Run: run}.Export("/srv/src", "", "")
 	if calls != 1 {
 		t.Fatalf("git ran %d times after the config read failed", calls)
 	}
@@ -193,5 +197,130 @@ func TestGitSourceTellsConfigFailuresApart(t *testing.T) {
 	err = gitConfigFailure(t, errors.New("fork/exec /usr/bin/git: permission denied"), "")
 	if err == nil || errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("io error: %v", err)
+	}
+}
+
+// recordingGit answers each git verb the way a successful fetch would and
+// records every argument list.
+type recordingGit struct{ calls [][]string }
+
+func (r *recordingGit) run(_ string, args ...string) (string, error) {
+	r.calls = append(r.calls, args)
+	switch gitVerb(args) {
+	case "config":
+		return "https://git.example.invalid/origin.git", nil
+	case "rev-parse":
+		return "0123456789abcdef0123456789abcdef01234567", nil
+	}
+	return "", nil
+}
+
+func (r *recordingGit) verbs() []string {
+	var out []string
+	for _, a := range r.calls {
+		out = append(out, gitVerb(a))
+	}
+	return out
+}
+
+func hasArgs(args, want []string) bool {
+	return strings.Contains(" "+strings.Join(args, " ")+" ", " "+strings.Join(want, " ")+" ")
+}
+
+func TestGitSourceWithURLNeverReadsSourceDirConfig(t *testing.T) {
+	rec := &recordingGit{}
+	const want = "https://git.example.invalid/pinned.git"
+	exp, err := GitSource{Run: rec.run}.Export("/srv/src", want, "release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Cleanup()
+	for _, a := range rec.calls {
+		if gitVerb(a) == "config" || hasArgs(a, []string{"-C", "/srv/src"}) {
+			t.Fatalf("source_dir was touched: %v", a)
+		}
+	}
+	var fetch []string
+	for _, a := range rec.calls {
+		if gitVerb(a) == "fetch" {
+			fetch = a
+		}
+	}
+	if fetch == nil || !hasArgs(fetch, []string{"--", want, "release"}) {
+		t.Fatalf("fetch did not use source_url: %v", fetch)
+	}
+	if !hasArgs(fetch, fetchTransportArgs) {
+		t.Fatalf("fetch lacks the transport allowlist: %v", fetch)
+	}
+	if hasArgs(fetch, []string{"protocol.file.allow=always"}) {
+		t.Fatalf("production source enables file transport: %v", fetch)
+	}
+}
+
+func TestGitSourceOriginFallbackReadsOnlyConfig(t *testing.T) {
+	rec := &recordingGit{}
+	exp, err := GitSource{Run: rec.run}.Export("/srv/src", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Cleanup()
+	if rec.verbs()[0] != "config" || !hasArgs(rec.calls[0], []string{"config", "--get", "remote.origin.url"}) {
+		t.Fatalf("first call = %v", rec.calls[0])
+	}
+	for _, a := range rec.calls[1:] {
+		if hasArgs(a, []string{"-C", "/srv/src"}) {
+			t.Fatalf("source_dir touched beyond the config read: %v", a)
+		}
+	}
+}
+
+func TestGitSourceRefusesDisallowedTransports(t *testing.T) {
+	for _, u := range []string{
+		"file:///srv/x", "/srv/x", "ext::sh -c id", "ext::id", "git@host.example:org/r.git",
+		"http://host.example/r.git", "git://host.example/r.git", "https:host.example/r", "-uhttps://h/r",
+	} {
+		rec := &recordingGit{}
+		_, err := GitSource{Run: rec.run}.Export("/srv/src", u, "")
+		if !errors.Is(err, ErrFetchTransport) || errors.Is(err, ErrNotCheckout) {
+			t.Fatalf("url %q: %v", u, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "srv/x") {
+			t.Fatalf("error echoes the URL: %v", err)
+		}
+		if len(rec.calls) != 0 {
+			t.Fatalf("url %q: git ran: %v", u, rec.calls)
+		}
+	}
+	for _, u := range []string{"https://host.example/r.git", "ssh://git@host.example/org/r.git", "HTTPS://host.example/r"} {
+		if err := ValidateFetchURL(u); err != nil {
+			t.Fatalf("url %q rejected: %v", u, err)
+		}
+	}
+}
+
+func TestGitSourceRefusesFileOrigin(t *testing.T) {
+	_, src := checkoutFixture(t)
+	// The fixture's origin is a local path; production GitSource must refuse
+	// it after the config read and before any fetch or init.
+	rec := 0
+	run := func(name string, args ...string) (string, error) {
+		rec++
+		return runGit(name, args...)
+	}
+	_, err := GitSource{Run: run}.Export(src, "", "")
+	if !errors.Is(err, ErrFetchTransport) || rec != 1 {
+		t.Fatalf("err=%v git calls=%d", err, rec)
+	}
+}
+
+func TestFetchTransportArgsBlockLocalPathInGit(t *testing.T) {
+	upstream, _ := checkoutFixture(t)
+	repo := filepath.Join(t.TempDir(), "r")
+	if out, err := runGit("git", "init", "--quiet", repo); err != nil {
+		t.Fatalf("init: %v: %s", err, out)
+	}
+	args := append(append([]string{}, fetchTransportArgs...), "-C", repo, "fetch", "--quiet", "--", upstream, "HEAD")
+	if out, err := runGit("git", args...); err == nil {
+		t.Fatalf("local path fetched despite protocol.allow=never: %s", out)
 	}
 }

@@ -3,6 +3,7 @@ package update
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,28 +19,65 @@ var ErrNotCheckout = errors.New("not a git checkout with an origin remote")
 
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
+// fetchTransportArgs restrict the fetch to https and ssh, whatever the URL's
+// source. protocol.allow=never also shuts file, git and ext, which would let a
+// writable config or values typo make root read a local path or run a command.
+var fetchTransportArgs = []string{
+	"-c", "protocol.allow=never",
+	"-c", "protocol.https.allow=always",
+	"-c", "protocol.ssh.allow=always",
+}
+
+// ErrFetchTransport means a fetch URL uses a transport other than https or ssh.
+// Its text never carries the URL, which may hold credentials.
+var ErrFetchTransport = errors.New("fetch URL must be https:// or ssh:// (no file, ext, git or scp-like form)")
+
+// ValidateFetchURL accepts only an https:// or ssh:// URL with a host.
+func ValidateFetchURL(raw string) error {
+	if raw == "" || hasControl(raw) || strings.ContainsAny(raw, " \t") || strings.HasPrefix(raw, "-") {
+		return ErrFetchTransport
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Opaque != "" || u.Host == "" {
+		// err is dropped: url.Error text embeds the URL.
+		return ErrFetchTransport
+	}
+	if u.Scheme != "https" && u.Scheme != "ssh" {
+		return ErrFetchTransport
+	}
+	if !strings.HasPrefix(strings.ToLower(raw), u.Scheme+"://") {
+		return ErrFetchTransport
+	}
+	return nil
+}
+
 // GitSource exports a commit through the git binary.
 //
 // It fetches into a private repository, not into source_dir: source_dir is
 // usually owned by another account, and a root-run fetch there would leave
-// root-owned objects in a builder's repository. Only source_dir's remote URL
-// is read from it.
-type GitSource struct{ Run CommandRunner }
+// root-owned objects in a builder's repository.
+type GitSource struct {
+	Run CommandRunner
+	// fileTransport lets tests fetch from a local repository. It is unexported
+	// and set only in this package's tests, so no production path (and no
+	// values-file key) can enable the file transport.
+	fileTransport bool
+}
 
-func (g GitSource) Export(srcDir, ref string) (*Export, error) {
-	// safe.directory=* on the command line only: root reads a repository
-	// another account owns, and git refuses that by default.
-	const trust = "safe.directory=*"
-	url, err := g.Run("git", "-c", trust, "-C", srcDir, "config", "--get", "remote."+sourceRemote+".url")
-	if err != nil {
-		if notCheckout(err, url) {
-			return nil, fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
+// Export fetches ref from fetchURL, or from source_dir's origin when fetchURL
+// is empty, and exports that commit. A non-empty fetchURL comes from the
+// reviewed values file; source_dir's config is then never read.
+func (g GitSource) Export(srcDir, fetchURL, ref string) (*Export, error) {
+	if fetchURL == "" {
+		var err error
+		if fetchURL, err = g.originURL(srcDir); err != nil {
+			return nil, err
 		}
-		// On failure url holds git's stderr, never the remote URL.
-		return nil, fmt.Errorf("read origin of source_dir %s: %v: %s", srcDir, err, url)
 	}
-	if url == "" {
-		return nil, fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
+	if !g.fileTransport {
+		if err := ValidateFetchURL(fetchURL); err != nil {
+			return nil, fmt.Errorf("source: %w", err)
+		}
 	}
 	if ref == "" {
 		ref = "HEAD"
@@ -56,9 +94,14 @@ func (g GitSource) Export(srcDir, ref string) (*Export, error) {
 		return nil, fmt.Errorf("private export dir: %v", err)
 	}
 
+	fetch := append([]string{}, fetchTransportArgs...)
+	if g.fileTransport {
+		fetch = append(fetch, "-c", "protocol.file.allow=always")
+	}
+	fetch = append(fetch, "-C", repo, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", fetchURL, ref)
 	steps := [][]string{
-		{"-c", trust, "init", "--quiet", repo},
-		{"-c", trust, "-C", repo, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", url, ref},
+		{"init", "--quiet", repo},
+		fetch,
 	}
 	for _, args := range steps {
 		if out, err := g.Run("git", args...); err != nil {
@@ -78,6 +121,26 @@ func (g GitSource) Export(srcDir, ref string) (*Export, error) {
 		return nil, fmt.Errorf("git checkout %s: %v: %s", sha, err, out)
 	}
 	return &Export{Dir: tree, Commit: sha, Cleanup: cleanup}, nil
+}
+
+// originURL reads source_dir's origin URL. The only git command run against
+// source_dir is `config --get`, which executes no hooks and no fsmonitor, so a
+// config another account can write cannot run code here. safe.directory=* is on
+// the command line only: root reads a repository another account owns, and git
+// refuses that by default.
+func (g GitSource) originURL(srcDir string) (string, error) {
+	out, err := g.Run("git", "-c", "safe.directory=*", "-C", srcDir, "config", "--get", "remote."+sourceRemote+".url")
+	if err != nil {
+		if notCheckout(err, out) {
+			return "", fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
+		}
+		// On failure out holds git's stderr, never the remote URL.
+		return "", fmt.Errorf("read origin of source_dir %s: %v: %s", srcDir, err, out)
+	}
+	if out == "" {
+		return "", fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
+	}
+	return out, nil
 }
 
 // notCheckout reports whether a failed `git config --get` answers that

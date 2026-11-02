@@ -79,7 +79,7 @@ func (b cmdBuilder) Build(_, _, out string) error { b.fs.files[out] = []byte(b.c
 
 type cmdSource struct{ err error }
 
-func (s cmdSource) Export(string, string) (*update.Export, error) {
+func (s cmdSource) Export(string, string, string) (*update.Export, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

@@ -3,11 +3,12 @@
 class: released-tool
 # Risk posture, read by gates from the merge base. Derived from repo facts: the repository is
 # public, and merges go through the merge gate with required_reviewer_roles [reviewer, security].
-# `exposure` and `data` are deliberately absent: they depend on where an operator deploys the
-# network-listening daemon and what its registry holds, which no repo fact states. They resolve
-# to the worst case until an operator supplies them.
+# posture exposure/data: roci ruling 2026-11-02 (lr-d3a0e3), following clagentic-loadout lr-0ada16 R8
+# (posture from repo facts).
 visibility: public
 merge_control: review_required
+exposure: internet
+data: public_or_none
 confirmed_at: 2026-11-02
 paths:
   # Holds this deployment's post_merge_steps: absolute host paths and the systemctl restart.

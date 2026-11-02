@@ -31,15 +31,11 @@ func TestParseRejectsBadInput(t *testing.T) {
 		"dir in git":        {strings.Replace(gitValuesYAML, "registry_git_ref: main", "registry_dir: /r", 1), "registry_dir"},
 		"bad unit":          {strings.Replace(gitValuesYAML, "sync.timer", "../evil;rm", 1), "supersedes"},
 		"bad source":        {strings.Replace(gitValuesYAML, "registry_source: git", "registry_source: s3", 1), "registry_source"},
-		"selfbuild no base": {gitValuesYAML + "", "base_dir"},
+		"selfbuild no base": {strings.Replace(gitValuesYAML, "registry_cache_dir: /cache", "registry_cache_dir: /cache\n  self_build_mcp_discovery: true", 1), "base_dir"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			y := c.yaml
-			if name == "selfbuild no base" {
-				y = strings.Replace(gitValuesYAML, "registry_cache_dir: /cache", "registry_cache_dir: /cache\n  self_build_mcp_discovery: true", 1)
-			}
-			_, err := ParseValues([]byte(y))
+			_, err := ParseValues([]byte(c.yaml))
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err = %v, want mention of %q", err, c.want)
 			}

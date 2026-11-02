@@ -50,7 +50,7 @@ files a builder left there cannot reach the installed binary.
    when unset, fetch the remote's default branch (`HEAD`, resolved by the
    remote, not assumed to be `main`).
 3. Export that exact commit into a private temporary directory and run
-   `go build -C <export> -o <staged> <binary.package>` there. The directory is
+   `go build -C <export> -o <staged> -- <binary.package>` there. The directory is
    removed afterwards, success or not.
 
 The fetch goes to a private repository rather than into `source_dir`: that
@@ -67,8 +67,26 @@ repository-location variables are dropped from git's environment, so a caller
 running inside a git hook is unaffected. The Makefile is not used.
 
 If `source_ref` names a ref the remote does not have, or the fetch fails, update
-exits 4 before writing anything. If `source_dir` is not a git checkout with an
-`origin` remote, it exits 2 before writing anything.
+exits 4 before writing anything. If `source_dir` has no `origin` remote or is
+not a git repository, it exits 2 before writing anything and names
+`source_dir`. If reading the remote fails for another reason (no `git` binary,
+a permission error), it exits 4 with git's error text; the URL is never printed.
+
+### Upgrading from the working-tree build
+
+Earlier versions built whatever was checked out in `binary.source_dir`. This
+version fetches `origin` instead, which changes behaviour for existing
+`schema_version: 1` values files:
+
+- Update fetches as the account that runs it (normally root, via the
+  post-merge step), so that account must be able to read `source_dir`'s
+  `origin`, not just the account that owns the checkout.
+- For a private SSH or HTTPS origin, configure credentials for that account
+  (an SSH key or credential helper), or point `origin` at a URL it can read.
+- An unreadable origin fails with exit 4 before any host write. The previous
+  version would have built the local tree in the same situation.
+- Local commits and uncommitted changes in `source_dir` no longer reach the
+  binary: push and merge what you want deployed, or set `source_ref`.
 
 ## Exit codes
 
@@ -102,7 +120,7 @@ own defaults apply.
 | `install_path` | yes | Where the binary is installed; the unit's `ExecStart`. Its directory must exist. |
 | `source_dir` | yes | Git checkout of this repository; only its `origin` URL is used. Its state does not affect the build. |
 | `source_ref` | no | Ref to build, fetched from `origin` (branch, tag or full ref name). Default: the remote's default branch. Must not start with `-` or contain whitespace. Adding it keeps `schema_version: 1`. |
-| `package` | no | Go package to build, default `./cmd/clagentic-directory`. |
+| `package` | no | Go package to build, default `./cmd/clagentic-directory`. Must not start with `-` or contain whitespace. Passed to `go build` after `--`. |
 
 ### `daemon`
 

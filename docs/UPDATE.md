@@ -44,14 +44,32 @@ One mode: rebuild from a reviewed ref. Update never builds from the working
 tree of `binary.source_dir`, so the branch, uncommitted changes or untracked
 files a builder left there cannot reach the installed binary.
 
-1. Read the `origin` URL from `binary.source_dir` (the only thing read from
-   it; its working tree, branch and index are never read or modified).
+1. Take the fetch URL: `binary.source_url` when set (then `source_dir` is not
+   read at all). When unset, read the `origin` URL from `binary.source_dir`
+   with `git config --get remote.origin.url` only (no hooks, no fsmonitor);
+   its working tree, branch and index are never read or modified.
 2. In a private temporary repository, fetch `binary.source_ref` from that URL;
    when unset, fetch the remote's default branch (`HEAD`, resolved by the
    remote, not assumed to be `main`).
 3. Export that exact commit into a private temporary directory and run
    `go build -C <export> -o <staged> -- <binary.package>` there. The directory is
    removed afterwards, success or not.
+
+### Fetch URL trust
+
+`source_dir/.git/config` is writable by whoever owns that checkout, and update
+fetches and builds as root. With no `source_url`, that account can point
+`origin` at any repository and root will build and install it. **Set
+`binary.source_url` whenever `source_dir` is writable by any account other than
+the one running update.** The values file comes from your reviewed config repo,
+so the URL is then reviewed too.
+
+Whichever way the URL is found, the fetch runs with `protocol.allow=never` and
+only https and ssh allowed. A URL with another scheme (`file://`, `ext::`,
+`git://`, `http://`, a local path, or the scp-like `user@host:path` form) is
+refused: exit 2 for `source_url` (checked with the whole values file, before any
+write), exit 4 for an `origin` URL. The URL is never printed. Use
+`ssh://user@host/path` in place of the scp-like form.
 
 The fetch goes to a private repository rather than into `source_dir`: that
 checkout is usually owned by another account, and a root-run fetch would leave
@@ -66,8 +84,9 @@ as the invoking user. `GIT_DIR`, `GIT_WORK_TREE` and the other
 repository-location variables are dropped from git's environment, so a caller
 running inside a git hook is unaffected. The Makefile is not used.
 
-If `source_ref` names a ref the remote does not have, or the fetch fails, update
-exits 4 before writing anything. If `source_dir` has no `origin` remote or is
+If `source_ref` names a ref the remote does not have, the fetch fails, or the
+`origin` URL uses a disallowed transport, update exits 4 before writing
+anything. If `source_dir` has no `origin` remote or is
 not a git repository, it exits 2 before writing anything and names
 `source_dir`. If reading the remote fails for another reason (no `git` binary,
 a permission error), it exits 4 with git's error text; the URL is never printed.
@@ -93,7 +112,7 @@ version fetches `origin` instead, which changes behaviour for existing
 | Code | Meaning |
 |---|---|
 | 0 | Converged, with or without changes |
-| 2 | Invalid values file, unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
+| 2 | Invalid values file (including a `source_url` that is not https or ssh), unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
 | 3 | Insufficient privilege (not root) |
 | 4 | Apply failure (fetch or unknown `source_ref`, build, file write, systemctl) |
 | 5 | `/readyz` did not pass in time; inspect with `journalctl -u <unit>` |
@@ -118,7 +137,8 @@ own defaults apply.
 | Key | Required | Meaning |
 |---|---|---|
 | `install_path` | yes | Where the binary is installed; the unit's `ExecStart`. Its directory must exist. |
-| `source_dir` | yes | Git checkout of this repository; only its `origin` URL is used. Its state does not affect the build. |
+| `source_dir` | yes | Git checkout of this repository; only its `origin` URL is used, and only when `source_url` is unset. Its state does not affect the build. |
+| `source_url` | no | `https://` or `ssh://` URL to fetch from. When set, `source_dir`'s git config is never read. Default: `source_dir`'s `origin`. Recommended whenever `source_dir` is writable by another account (see Fetch URL trust). Adding it keeps `schema_version: 1`. |
 | `source_ref` | no | Ref to build, fetched from `origin` (branch, tag or full ref name). Default: the remote's default branch. Must not start with `-` or contain whitespace. Adding it keeps `schema_version: 1`. |
 | `package` | no | Go package to build, default `./cmd/clagentic-directory`. Must not start with `-` or contain whitespace. Passed to `go build` after `--`. |
 

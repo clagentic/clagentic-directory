@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -69,7 +68,7 @@ func runInspect(args []string) int {
 		fmt.Fprintln(os.Stderr, "inspect: --mcp-url is required")
 		return 1
 	}
-	if err := validateSelfBuildURL(*mcpURL, "inspect --mcp-url"); err != nil {
+	if err := selfbuild.ValidateSelfBuildURL(*mcpURL, "inspect --mcp-url"); err != nil {
 		fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
 		return 1
 	}
@@ -124,10 +123,25 @@ func runInspect(args []string) int {
 	return 0
 }
 
+// dispatch routes a subcommand (args excludes the program name). handled is
+// false when args do not name a subcommand and the daemon should start.
+func dispatch(args []string) (rc int, handled bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "inspect":
+		return runInspect(args[1:]), true
+	case "update":
+		return runUpdate(args[1:]), true
+	}
+	return 0, false
+}
+
 func main() {
-	// Subcommand dispatch: inspect runs standalone, before service flag parsing.
-	if len(os.Args) > 1 && os.Args[1] == "inspect" {
-		os.Exit(runInspect(os.Args[2:]))
+	// Subcommands run standalone, before service flag parsing.
+	if rc, handled := dispatch(os.Args[1:]); handled {
+		os.Exit(rc)
 	}
 
 	var (
@@ -268,7 +282,7 @@ func main() {
 	}
 
 	if *selfBuildSourceWatchURL != "" {
-		if err := validateSelfBuildURL(*selfBuildSourceWatchURL, "source-watch"); err != nil {
+		if err := selfbuild.ValidateSelfBuildURL(*selfBuildSourceWatchURL, "source-watch"); err != nil {
 			slog.Error("self-build: invalid source-watch URL", "err", err)
 			os.Exit(1)
 		}
@@ -283,7 +297,7 @@ func main() {
 	}
 
 	if *selfBuildUsageEventStoreURL != "" {
-		if err := validateSelfBuildURL(*selfBuildUsageEventStoreURL, "usage-event-store"); err != nil {
+		if err := selfbuild.ValidateSelfBuildURL(*selfBuildUsageEventStoreURL, "usage-event-store"); err != nil {
 			slog.Error("self-build: invalid usage-event-store URL", "err", err)
 			os.Exit(1)
 		}
@@ -316,24 +330,6 @@ func main() {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}
-}
-
-// validateSelfBuildURL parses the URL and rejects obviously invalid values.
-// It does not restrict which hosts are allowed — operators choose their own
-// endpoints — but it ensures the URL is at least syntactically valid
-// and uses http or https, preventing accidental file:// or other scheme abuse.
-func validateSelfBuildURL(raw, mechanism string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("%s URL parse error: %w", mechanism, err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("%s URL has unsupported scheme %q (must be http or https)", mechanism, u.Scheme)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("%s URL has no host", mechanism)
-	}
-	return nil
 }
 
 // storeSequencingAdapter adapts store.Store to selfbuild.StoreReader.

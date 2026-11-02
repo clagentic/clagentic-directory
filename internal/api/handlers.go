@@ -192,7 +192,7 @@ func requestBaseURL(r *http.Request) string {
 	// it is exactly "http" or "https". Anything else (malformed values,
 	// injected schemes such as "javascript:", CRLF) is ignored and the
 	// request's own scheme is kept — matches the http/https-only posture
-	// enforced elsewhere in this project by validateSelfBuildURL().
+	// enforced elsewhere in this project by selfbuild.ValidateSelfBuildURL().
 	if fp := r.Header.Get("X-Forwarded-Proto"); fp == "http" || fp == "https" {
 		scheme = fp
 	}

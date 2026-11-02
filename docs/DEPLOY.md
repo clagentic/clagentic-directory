@@ -86,6 +86,22 @@ systemctl enable --now <UNIT_FILE>
 
 ---
 
+## Converging a host with `update`
+
+`clagentic-directory update --values <file>` renders the unit above from a
+values file, keeps the binary current, retires units you name as superseded,
+restarts only when something changed, and verifies `/readyz`. It is idempotent,
+so it suits a deployment-config repo's post-merge step.
+
+```bash
+clagentic-directory update --values /path/to/values.yaml
+```
+
+The values schema, step order and exit codes are in `docs/UPDATE.md`; start
+from `examples/update-values.example.yaml`.
+
+---
+
 ## docker-compose example
 
 ```yaml

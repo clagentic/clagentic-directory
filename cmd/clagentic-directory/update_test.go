@@ -77,6 +77,15 @@ type cmdBuilder struct {
 
 func (b cmdBuilder) Build(_, _, out string) error { b.fs.files[out] = []byte(b.content); return nil }
 
+type cmdSource struct{ err error }
+
+func (s cmdSource) Export(string, string) (*update.Export, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &update.Export{Dir: "/export", Commit: "0123456789abcdef0123456789abcdef01234567", Cleanup: func() {}}, nil
+}
+
 type cmdHost bool
 
 func (h cmdHost) IsPrivileged() bool { return bool(h) }
@@ -105,7 +114,7 @@ func writeValues(t *testing.T, y string) string {
 func newDeps(root bool, probe error) (update.Deps, *cmdFS, *cmdSD) {
 	f := &cmdFS{files: map[string][]byte{}}
 	sd := &cmdSD{active: map[string]bool{}, enabled: map[string]bool{}}
-	return update.Deps{FS: f, Systemd: sd, Prober: cmdProber{probe}, Builder: cmdBuilder{f, "bin"}, Host: cmdHost(root), Sleep: func(time.Duration) {}}, f, sd
+	return update.Deps{FS: f, Systemd: sd, Prober: cmdProber{probe}, Source: cmdSource{}, Builder: cmdBuilder{f, "bin"}, Host: cmdHost(root), Sleep: func(time.Duration) {}}, f, sd
 }
 
 // callerShape models how one caller invokes update: its environment and exact
@@ -189,6 +198,9 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 					}
 					if run == 1 && effective == "converged" && len(sd.calls) != 0 {
 						t.Fatalf("converged host mutated: %v", sd.calls)
+					}
+					if !strings.Contains(out.String(), "source: built commit 0123456789abcdef0123456789abcdef01234567") {
+						t.Fatalf("run %d does not report the built commit: %s", run, out.String())
 					}
 					if run == 2 && (len(sd.calls) != 0 || !strings.Contains(out.String(), "no changes")) {
 						t.Fatalf("second run not a no-op: calls=%v out=%s", sd.calls, out.String())
@@ -309,5 +321,29 @@ daemon:
 	}
 	if len(defined) < 15 {
 		t.Fatalf("flag scrape found only %d flags", len(defined))
+	}
+}
+
+func TestSourceFailureExitCodesLeaveHostUntouched(t *testing.T) {
+	vp := writeValues(t, updateValues)
+	for _, c := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"fetch or unknown ref", errors.New("git fetch: exit status 128"), update.ExitApply},
+		{"not a checkout", update.ErrNotCheckout, update.ExitInvalid},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			deps, f, sd := newDeps(true, nil)
+			deps.Source = cmdSource{c.err}
+			var out, errb bytes.Buffer
+			if rc := runUpdateWith([]string{"--values", vp}, deps, &out, &errb); rc != c.want {
+				t.Fatalf("rc=%d want %d stderr=%s", rc, c.want, errb.String())
+			}
+			if len(f.files) != 0 || len(sd.calls) != 0 || strings.Contains(out.String(), "changed:") {
+				t.Fatalf("host touched: files=%d calls=%v out=%s", len(f.files), sd.calls, out.String())
+			}
+		})
 	}
 }

@@ -38,11 +38,14 @@ func fail(code int, format string, a ...any) *Failure {
 type Result struct {
 	UnitChanged   bool
 	BinaryChanged bool
-	Enabled       bool
-	Restarted     bool
-	Stopped       []string
-	Disabled      []string
-	Skipped       []string
+	// Commit is the source commit the binary was built from; empty when the
+	// run failed before the source was exported.
+	Commit    string
+	Enabled   bool
+	Restarted bool
+	Stopped   []string
+	Disabled  []string
+	Skipped   []string
 }
 
 // Changed reports whether the run altered the host.
@@ -54,7 +57,7 @@ func (r Result) Changed() bool {
 const stageSuffix = ".update-new"
 
 // Converge brings the host in line with v. Order: validate, privilege check,
-// stage the binary build (not live), unit, daemon-reload, binary swap,
+// export the reviewed source, stage the binary build (not live), unit, daemon-reload, binary swap,
 // superseded units, enable, restart when needed, readiness.
 func Converge(d Deps, v *Values) (res Result, err error) {
 	if verr := v.Validate(); verr != nil {
@@ -81,12 +84,26 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 	}
 	unitChanged := rerr != nil || !bytes.Equal(existing, unitText)
 
+	// Export the reviewed commit before anything is written. The build never
+	// sees source_dir's working tree, so whatever branch or uncommitted state
+	// a builder left there cannot reach a root-run binary.
+	exp, xerr := d.Source.Export(v.Binary.SourceDir, v.Binary.SourceRef)
+	if xerr != nil {
+		code := ExitApply
+		if errors.Is(xerr, ErrNotCheckout) {
+			code = ExitInvalid
+		}
+		return res, fail(code, "source: %v", xerr)
+	}
+	defer exp.Cleanup()
+	res.Commit = exp.Commit
+
 	// Build into a staged path first so a build failure leaves the host
 	// untouched. The staged file sits beside the install path so the final
 	// rename stays on one filesystem.
 	install := v.Binary.InstallPath
 	staged := install + stageSuffix
-	if berr := d.Builder.Build(v.Binary.SourceDir, v.Package(), staged); berr != nil {
+	if berr := d.Builder.Build(exp.Dir, v.Package(), staged); berr != nil {
 		_ = d.FS.Remove(staged)
 		return res, fail(ExitApply, "build: %v", berr)
 	}

@@ -17,9 +17,10 @@ In order:
 
 1. Validate the whole values file and check privilege. Nothing is written
    before both pass.
-2. Build the binary from `binary.source_dir` into a staged file beside
-   `binary.install_path` (`<install_path>.update-new`). A build failure leaves
-   the host untouched.
+2. Export the reviewed commit (see Binary currency) into a private temp
+   directory and build it into a staged file beside `binary.install_path`
+   (`<install_path>.update-new`). A fetch, ref or build failure leaves the
+   host untouched. The built commit is printed as `source: built commit <sha>`.
 3. Render the unit. If it differs from the installed one, write it through a
    temp file and rename, then run `systemctl daemon-reload`.
 4. If the built binary's SHA-256 differs from the installed one, rename the
@@ -39,20 +40,44 @@ had already changed; fix the cause and run it again.
 
 ## Binary currency
 
-One mode: rebuild from a source checkout. `binary.source_dir` is a checkout of
-this repository (kept current by whatever deploys it, for example a merge
-step); update runs `go build -C <source_dir> -o <staged> <binary.package>`.
-The host needs the Go toolchain on `PATH` and a usable `HOME` (or `GOCACHE`)
-for the invoking user. The Makefile is not used.
+One mode: rebuild from a reviewed ref. Update never builds from the working
+tree of `binary.source_dir`, so the branch, uncommitted changes or untracked
+files a builder left there cannot reach the installed binary.
+
+1. Read the `origin` URL from `binary.source_dir` (the only thing read from
+   it; its working tree, branch and index are never read or modified).
+2. In a private temporary repository, fetch `binary.source_ref` from that URL;
+   when unset, fetch the remote's default branch (`HEAD`, resolved by the
+   remote, not assumed to be `main`).
+3. Export that exact commit into a private temporary directory and run
+   `go build -C <export> -o <staged> <binary.package>` there. The directory is
+   removed afterwards, success or not.
+
+The fetch goes to a private repository rather than into `source_dir`: that
+checkout is usually owned by another account, and a root-run fetch would leave
+root-owned objects in it. Option (b) (refuse when `source_dir` is dirty or
+behind) was rejected because the host's correctness would still depend on
+someone keeping that tree on the ref, and a refusal would block a deployment
+repo's post-merge step.
+
+Requirements: the `git` binary and the Go toolchain on `PATH`, a usable `HOME`
+(or `GOCACHE`) for the invoking user, and credentials for the `origin` remote
+as the invoking user. `GIT_DIR`, `GIT_WORK_TREE` and the other
+repository-location variables are dropped from git's environment, so a caller
+running inside a git hook is unaffected. The Makefile is not used.
+
+If `source_ref` names a ref the remote does not have, or the fetch fails, update
+exits 4 before writing anything. If `source_dir` is not a git checkout with an
+`origin` remote, it exits 2 before writing anything.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Converged, with or without changes |
-| 2 | Invalid values file, unreadable values, or bad usage |
+| 2 | Invalid values file, unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
 | 3 | Insufficient privilege (not root) |
-| 4 | Apply failure (build, file write, systemctl) |
+| 4 | Apply failure (fetch or unknown `source_ref`, build, file write, systemctl) |
 | 5 | `/readyz` did not pass in time; inspect with `journalctl -u <unit>` |
 
 ## Values schema (`schema_version: 1`)
@@ -75,7 +100,8 @@ own defaults apply.
 | Key | Required | Meaning |
 |---|---|---|
 | `install_path` | yes | Where the binary is installed; the unit's `ExecStart`. Its directory must exist. |
-| `source_dir` | yes | Checkout of this repository to build from. |
+| `source_dir` | yes | Git checkout of this repository; only its `origin` URL is used. Its state does not affect the build. |
+| `source_ref` | no | Ref to build, fetched from `origin` (branch, tag or full ref name). Default: the remote's default branch. Must not start with `-` or contain whitespace. Adding it keeps `schema_version: 1`. |
 | `package` | no | Go package to build, default `./cmd/clagentic-directory`. |
 
 ### `daemon`

@@ -51,6 +51,9 @@ func runUpdateWith(args []string, deps update.Deps, stdout, stderr io.Writer) in
 }
 
 func printResult(w io.Writer, unit string, r update.Result) {
+	if r.Commit != "" {
+		fmt.Fprintf(w, "source: built commit %s\n", r.Commit)
+	}
 	if r.UnitChanged {
 		fmt.Fprintf(w, "changed: unit %s written, daemon-reload run\n", unit)
 	}

@@ -329,3 +329,86 @@ func TestReadyzRetriesThenSucceedsWithToken(t *testing.T) {
 		t.Fatalf("calls=%d token=%q", r.pr.calls, r.pr.token)
 	}
 }
+
+func TestBuildsExportedCommitNotSourceDir(t *testing.T) {
+	v := testValues(t)
+	v.Binary.SourceRef = "release"
+	r := newRig()
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.sc.calls) != 1 || r.sc.calls[0] != "/src@release" {
+		t.Fatalf("export calls = %v", r.sc.calls)
+	}
+	// source_dir holds a feature branch and a dirty tracked file; the build
+	// input must be the export alone.
+	if len(r.bd.srcDirs) != 1 || r.bd.srcDirs[0] != "/private/export" {
+		t.Fatalf("built from %v, want only the private export", r.bd.srcDirs)
+	}
+	if res.Commit != r.sc.commit {
+		t.Fatalf("commit = %q", res.Commit)
+	}
+	if r.sc.cleanups != 1 {
+		t.Fatalf("export cleanups = %d", r.sc.cleanups)
+	}
+}
+
+func TestEmptySourceRefMeansRemoteDefault(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	if r.sc.calls[0] != "/src@" {
+		t.Fatalf("export calls = %v", r.sc.calls)
+	}
+}
+
+func TestSourceFailuresWriteNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"unknown ref", errors.New("git fetch: exit status 128: couldn't find remote ref nope"), ExitApply},
+		{"fetch failure", errors.New("git fetch: exit status 128: unable to access remote"), ExitApply},
+		{"not a checkout", ErrNotCheckout, ExitInvalid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := testValues(t)
+			r := newRig()
+			seedConverged(r, v)
+			r.fs.files[v.UnitPath()] = []byte("stale unit")
+			r.bd.content = "binary-v2"
+			r.sc.err = c.err
+			before := r.fs.paths()
+			res, err := Converge(r.d, v)
+			if code(err) != c.want {
+				t.Fatalf("code = %d err=%v", code(err), err)
+			}
+			if r.bd.built != 0 || len(r.fs.log) != 0 || len(r.sd.calls) != 0 {
+				t.Fatalf("host touched: built=%d fs=%v systemd=%v", r.bd.built, r.fs.log, r.sd.calls)
+			}
+			if strings.Join(r.fs.paths(), ",") != strings.Join(before, ",") || res.Changed() || res.Commit != "" {
+				t.Fatalf("files=%v res=%+v", r.fs.paths(), res)
+			}
+		})
+	}
+}
+
+func TestInvalidSourceRefIsRejected(t *testing.T) {
+	for _, ref := range []string{"-upload-pack=x", "a b", "a\nb"} {
+		v := testValues(t)
+		v.Binary.SourceRef = ref
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "binary.source_ref") {
+			t.Fatalf("ref %q accepted: %v", ref, err)
+		}
+	}
+	v := testValues(t)
+	v.Binary.SourceRef = "refs/heads/release/1.x"
+	if err := v.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

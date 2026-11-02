@@ -59,11 +59,14 @@ type UnitValues struct {
 }
 
 // BinaryValues describes how the binary is kept current: a rebuild from a
-// source checkout, installed by atomic rename.
+// private export of a reviewed ref, installed by atomic rename.
 type BinaryValues struct {
 	InstallPath string `yaml:"install_path"`
 	SourceDir   string `yaml:"source_dir"`
-	Package     string `yaml:"package"`
+	// SourceRef is the ref built from, fetched from the checkout's origin.
+	// Empty means the remote's default branch.
+	SourceRef string `yaml:"source_ref"`
+	Package   string `yaml:"package"`
 }
 
 // DaemonValues maps one-to-one onto daemon flags. The bearer token flag is
@@ -209,6 +212,9 @@ func (v *Values) Validate() error {
 
 	reqAbs("binary.install_path", v.Binary.InstallPath)
 	reqAbs("binary.source_dir", v.Binary.SourceDir)
+	if r := v.Binary.SourceRef; r != "" && (hasControl(r) || strings.ContainsAny(r, " \t") || strings.HasPrefix(r, "-")) {
+		add("binary.source_ref: %q must not contain whitespace or control characters or start with -", r)
+	}
 	if p := v.Binary.Package; p != "" && (hasControl(p) || strings.ContainsAny(p, " \t")) {
 		add("binary.package: %q contains whitespace or control characters", p)
 	}

@@ -18,6 +18,7 @@ func SystemDeps() Deps {
 		FS:      OSFS{},
 		Systemd: ExecSystemd{Run: runCommand},
 		Prober:  HTTPProber{Client: &http.Client{Timeout: 5 * time.Second}},
+		Source:  GitSource{Run: runGit},
 		Builder: GoBuilder{Run: runCommand},
 		Host:    osHost{},
 		Sleep:   time.Sleep,

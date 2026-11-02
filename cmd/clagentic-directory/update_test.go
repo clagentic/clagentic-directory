@@ -144,7 +144,7 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 		},
 		{
 			name: "operator by hand",
-			env:  map[string]string{"PATH": "/usr/local/bin:/usr/bin", "HOME": "/root", "TERM": "xterm", "LANG": "C.UTF-8"},
+			env:  map[string]string{"PATH": "/usr/local/bin:/usr/bin", "HOME": "/home/operator", "TERM": "xterm", "LANG": "C.UTF-8"},
 			argv: func(v string) []string { return []string{"--values=" + v} },
 		},
 		{

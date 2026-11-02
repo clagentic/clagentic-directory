@@ -1,0 +1,16 @@
+# Repo profile: the shape this repository must keep. See clagentic-loadout docs/repo-profile.md.
+# This repository ships as a released tool (public GitHub repo, Go daemon, client and schemas).
+class: released-tool
+# Risk posture, read by gates from the merge base. Derived from repo facts: the repository is
+# public, and merges go through the merge gate with required_reviewer_roles [reviewer, security].
+# `exposure` and `data` are deliberately absent: they depend on where an operator deploys the
+# network-listening daemon and what its registry holds, which no repo fact states. They resolve
+# to the worst case until an operator supplies them.
+visibility: public
+merge_control: review_required
+confirmed_at: 2026-11-02
+paths:
+  # Holds this deployment's post_merge_steps: absolute host paths and the systemctl restart.
+  ".clagentic/loadout/config.yaml": {class: internal}
+  # Crew enrollment config for this deployment.
+  ".crew/**": {class: internal}

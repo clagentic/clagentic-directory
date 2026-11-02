@@ -1,0 +1,15 @@
+# Tracked merge gate for this repo. loadout-merge reads these keys from this
+# file as it exists at the PR's base commit, so a PR cannot relax its own gate
+# and a gate change is reviewed like any other change. Machine-local keys
+# (post_merge_steps, host paths) and the roles: taxonomy stay in config.yaml.
+merge:
+  # lr-d3969e: required_reviewer_roles absence is fail-OPEN (unlike
+  # authorized_roles, which is fail-closed on absence) — a merge could land
+  # with zero reviewer/security verdict. This repo's post_merge_steps in
+  # config.yaml perform a live production deploy on every merge (rebuild +
+  # atomic binary replace + restart of the deployed daemon),
+  # so an unreviewed merge here restarts a Tier 1 daemon. Declaring the gate
+  # closes that window. `security` is not in DEFAULT_ROLE_VERBS (see the
+  # `roles:` section and its comment in config.yaml), so this repo declares
+  # its own `roles:` section rather than relying on the fallback taxonomy.
+  required_reviewer_roles: [reviewer, security]

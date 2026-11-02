@@ -217,6 +217,7 @@ func TestBuildNeedsPATH(t *testing.T) {
 func TestUpdateExitCodes(t *testing.T) {
 	vp := writeValues(t, updateValues)
 	bad := writeValues(t, "schema_version: 1\nnope: true\n")
+	pct := writeValues(t, strings.Replace(updateValues, "user: svc", "user: svc, env_file: /etc/%h.env", 1))
 	cases := []struct {
 		name  string
 		args  []string
@@ -228,6 +229,7 @@ func TestUpdateExitCodes(t *testing.T) {
 		{"missing flag", nil, true, nil, 2},
 		{"unreadable values", []string{"--values", vp + ".absent"}, true, nil, 2},
 		{"invalid values", []string{"--values", bad}, true, nil, 2},
+		{"env_file with percent", []string{"--values", pct}, true, nil, 2},
 		{"no privilege", []string{"--values", vp}, false, nil, 3},
 		{"readyz failure", []string{"--values", vp}, true, errors.New("503"), 5},
 	}

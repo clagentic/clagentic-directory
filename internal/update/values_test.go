@@ -182,7 +182,9 @@ func TestRenderUnitEnvironmentFileIsRaw(t *testing.T) {
 }
 
 func TestValidateRejectsEnvFileWhitespace(t *testing.T) {
-	for _, p := range []string{"/etc/my dir.env", "/etc/a\tb.env", "/etc/a\nb.env"} {
+	// "-/x" would mean optional file to systemd; it is rejected as non-absolute.
+	// "%" is a specifier systemd expands in EnvironmentFile=.
+	for _, p := range []string{"/etc/my dir.env", "/etc/a\tb.env", "/etc/a\nb.env", "/etc/%h.env", "/etc/a%%b.env", "-/etc/x.env"} {
 		v := testValues(t)
 		v.Unit.EnvFile = p
 		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "unit.env_file") {
@@ -218,4 +220,13 @@ func TestRawPathRefusesUnsafeValues(t *testing.T) {
 	if got := rawPath("/etc/x.env"); got != "/etc/x.env" {
 		t.Fatalf("rawPath altered a clean path: %s", got)
 	}
+}
+
+func TestRawPathPanicsOnSpecifier(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("rawPath accepted %")
+		}
+	}()
+	rawPath("/etc/%h.env")
 }

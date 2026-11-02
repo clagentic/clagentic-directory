@@ -25,12 +25,13 @@ func quoteArg(s string) string {
 	return `"` + r.Replace(s) + `"`
 }
 
-// rawPath returns a path for a directive that systemd reads verbatim. Such a
-// value cannot be quoted, so whitespace or control characters are refused
-// rather than escaped.
+// rawPath returns a path for EnvironmentFile=. systemd does not unquote that
+// value, treats a leading "-" as "optional file", and expands % specifiers in
+// it. A leading "-" cannot occur because Validate requires an absolute path;
+// whitespace, control bytes and % are refused rather than escaped.
 func rawPath(s string) string {
-	if hasControl(s) || strings.ContainsAny(s, " \t") {
-		panic(fmt.Sprintf("update: refusing to render whitespace or control character in raw unit path %q", s))
+	if hasControl(s) || strings.ContainsAny(s, " \t%") {
+		panic(fmt.Sprintf("update: refusing to render whitespace, control character or %% in raw unit path %q", s))
 	}
 	return s
 }

@@ -152,3 +152,46 @@ func TestGitSourceIgnoresInheritedRepositoryVariables(t *testing.T) {
 		t.Fatalf("export holds %q", got)
 	}
 }
+
+// gitConfigFailure runs a GitSource whose `git config` call fails with err
+// and out; any later git call fails the test, since Export must stop there.
+func gitConfigFailure(t *testing.T, err error, out string) error {
+	t.Helper()
+	calls := 0
+	run := func(name string, args ...string) (string, error) {
+		calls++
+		return out, err
+	}
+	_, xerr := GitSource{Run: run}.Export("/srv/src", "")
+	if calls != 1 {
+		t.Fatalf("git ran %d times after the config read failed", calls)
+	}
+	return xerr
+}
+
+func TestGitSourceTellsConfigFailuresApart(t *testing.T) {
+	exit := func(code string) error { return exec.Command("sh", "-c", "exit "+code).Run() }
+
+	// Key absent: exit 1 with no output.
+	if err := gitConfigFailure(t, exit("1"), ""); !errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "/srv/src") {
+		t.Fatalf("key absent: %v", err)
+	}
+	// Confirmed not a repository.
+	if err := gitConfigFailure(t, exit("128"), "fatal: not a git repository (or any of the parent directories): .git"); !errors.Is(err, ErrNotCheckout) {
+		t.Fatalf("not a repository: %v", err)
+	}
+	// Missing git binary is an apply-class failure, not an invalid values file.
+	missing := &exec.Error{Name: "git", Err: exec.ErrNotFound}
+	if err := gitConfigFailure(t, missing, ""); err == nil || errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "executable file not found") {
+		t.Fatalf("missing binary: %v", err)
+	}
+	// Permission or other failure: git's text is kept, the URL never appears.
+	err := gitConfigFailure(t, exit("128"), "fatal: detected dubious ownership in repository")
+	if err == nil || errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "dubious ownership") {
+		t.Fatalf("other exit: %v", err)
+	}
+	err = gitConfigFailure(t, errors.New("fork/exec /usr/bin/git: permission denied"), "")
+	if err == nil || errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("io error: %v", err)
+	}
+}

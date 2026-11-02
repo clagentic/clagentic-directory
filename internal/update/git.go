@@ -31,8 +31,15 @@ func (g GitSource) Export(srcDir, ref string) (*Export, error) {
 	// another account owns, and git refuses that by default.
 	const trust = "safe.directory=*"
 	url, err := g.Run("git", "-c", trust, "-C", srcDir, "config", "--get", "remote."+sourceRemote+".url")
-	if err != nil || url == "" {
-		return nil, fmt.Errorf("%w: %s", ErrNotCheckout, srcDir)
+	if err != nil {
+		if notCheckout(err, url) {
+			return nil, fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
+		}
+		// On failure url holds git's stderr, never the remote URL.
+		return nil, fmt.Errorf("read origin of source_dir %s: %v: %s", srcDir, err, url)
+	}
+	if url == "" {
+		return nil, fmt.Errorf("%w: source_dir %s", ErrNotCheckout, srcDir)
 	}
 	if ref == "" {
 		ref = "HEAD"
@@ -71,6 +78,19 @@ func (g GitSource) Export(srcDir, ref string) (*Export, error) {
 		return nil, fmt.Errorf("git checkout %s: %v: %s", sha, err, out)
 	}
 	return &Export{Dir: tree, Commit: sha, Cleanup: cleanup}, nil
+}
+
+// notCheckout reports whether a failed `git config --get` answers that
+// source_dir has no origin: exit 1 means the key is absent, and git's own
+// "not a git repository" message confirms a plain directory. A missing git
+// binary, a permission problem or any other failure says nothing about
+// source_dir.
+func notCheckout(err error, out string) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	return exitErr.ExitCode() == 1 || strings.Contains(out, "not a git repository")
 }
 
 // gitLocationVars name the variables that redirect git to a repository other

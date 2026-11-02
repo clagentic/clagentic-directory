@@ -1,4 +1,4 @@
-# Repo-tier loadout config (merge-gate keys are in gate.yaml; see /workspace/clagentic-loadout/docs/provisioning.md,
+# Repo-tier loadout config (merge-gate keys are in gate.yaml; see clagentic-loadout docs/provisioning.md,
 # "Merge-gate config homes" section). Kept minimal: this repo has no CI runner
 # wired up yet, so the merge gate must not block on a CI signal that will
 # never arrive.

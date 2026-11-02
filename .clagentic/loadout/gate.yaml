@@ -7,7 +7,7 @@ merge:
   # authorized_roles, which is fail-closed on absence) — a merge could land
   # with zero reviewer/security verdict. This repo's post_merge_steps in
   # config.yaml perform a live production deploy on every merge (rebuild +
-  # atomic binary replace + `systemctl restart clagentic-directory.service`),
+  # atomic binary replace + restart of the deployed daemon),
   # so an unreviewed merge here restarts a Tier 1 daemon. Declaring the gate
   # closes that window. `security` is not in DEFAULT_ROLE_VERBS (see the
   # `roles:` section and its comment in config.yaml), so this repo declares

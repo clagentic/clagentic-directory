@@ -17,3 +17,6 @@
 
 # Go cache fallback used by the Makefile when HOME is unset
 /.gocache/
+
+# Python bytecode from scripts/ tests
+__pycache__/

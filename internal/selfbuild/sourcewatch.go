@@ -43,9 +43,9 @@ type SourceWatcher struct {
 type SourceEvent struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
-	Kind      string    `json:"kind"`      // e.g. "file-diff"
+	Kind      string    `json:"kind"` // e.g. "file-diff"
 	FilePath  string    `json:"file_path"`
-	Agent     string    `json:"agent"`     // agent name, if resolvable
+	Agent     string    `json:"agent"` // agent name, if resolvable
 	Diff      string    `json:"diff"`
 }
 
@@ -184,7 +184,7 @@ func isAgentDefFile(path string) bool {
 }
 
 // extractAgentFromPath guesses an agent name from the file path.
-// e.g. "/workspace/agents/builder/SKILL.md" -> "builder"
+// e.g. "/srv/agents/builder/SKILL.md" -> "builder"
 func extractAgentFromPath(path string) string {
 	parts := strings.Split(path, "/")
 	// Walk backwards: skip the filename, return the first meaningful segment.

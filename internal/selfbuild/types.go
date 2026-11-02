@@ -26,15 +26,15 @@ type AnnotatedStrings struct {
 // Fields populated only from self-declaration blocks (ConversationKinds, AfterRoles,
 // AfterAgents, VerdictField) are pointer types so they are omitted when nil.
 type ProposedCapability struct {
-	ID                AnnotatedString    `yaml:"id"`
-	Name              AnnotatedString    `yaml:"name"`
-	Description       AnnotatedString    `yaml:"description"`
-	Intents           AnnotatedStrings   `yaml:"intents"`
-	Format            AnnotatedString    `yaml:"format"`
-	ConversationKinds *AnnotatedStrings  `yaml:"conversation_kinds,omitempty"`
-	AfterRoles        *AnnotatedStrings  `yaml:"after_roles,omitempty"`
-	AfterAgents       *AnnotatedStrings  `yaml:"after_agents,omitempty"`
-	VerdictField      *AnnotatedString   `yaml:"verdict_field,omitempty"`
+	ID                AnnotatedString   `yaml:"id"`
+	Name              AnnotatedString   `yaml:"name"`
+	Description       AnnotatedString   `yaml:"description"`
+	Intents           AnnotatedStrings  `yaml:"intents"`
+	Format            AnnotatedString   `yaml:"format"`
+	ConversationKinds *AnnotatedStrings `yaml:"conversation_kinds,omitempty"`
+	AfterRoles        *AnnotatedStrings `yaml:"after_roles,omitempty"`
+	AfterAgents       *AnnotatedStrings `yaml:"after_agents,omitempty"`
+	VerdictField      *AnnotatedString  `yaml:"verdict_field,omitempty"`
 }
 
 // ProposedChange is written to proposed_changes/<agent>.<timestamp>.yaml.

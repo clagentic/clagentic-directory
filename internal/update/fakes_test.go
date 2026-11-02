@@ -104,9 +104,6 @@ func (f *fakeSystemd) Restart(u string) error {
 	return f.rec("restart " + u)
 }
 
-// mutating returns the calls that change unit state.
-func (f *fakeSystemd) mutating() []string { return f.calls }
-
 type fakeProber struct {
 	failures int // leading failures before success; -1 = always fail
 	calls    int

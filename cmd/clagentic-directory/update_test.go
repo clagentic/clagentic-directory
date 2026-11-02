@@ -108,11 +108,58 @@ func newDeps(root bool, probe error) (update.Deps, *cmdFS, *cmdSD) {
 	return update.Deps{FS: f, Systemd: sd, Prober: cmdProber{probe}, Builder: cmdBuilder{f, "bin"}, Host: cmdHost(root), Sleep: func(time.Duration) {}}, f, sd
 }
 
-// The post-merge runners (loadout-merge, loadout-post-merge) and an operator
-// all invoke the same argv in the foreground with no stdin or tty use, so the
-// shapes share one entry point; the state matrix is what varies.
+// callerShape models how one caller invokes update: its environment, whether
+// a terminal is attached, and the host state it meets. The unprivileged-env
+// shapes matter because update shells out for the build and must not depend on
+// an interactive login.
+type callerShape struct {
+	name string
+	// env is the full environment the shape runs with.
+	env map[string]string
+	tty bool
+	// argv is the exact argument list the caller passes.
+	argv func(values string) []string
+}
+
+// envDeps wires deps whose builder refuses to run when the environment lacks
+// what a real build needs (PATH to find the toolchain), so an environment-
+// sensitive regression fails in the stripped shapes.
+type envBuilder struct {
+	inner cmdBuilder
+	env   map[string]string
+}
+
+func (b envBuilder) Build(src, pkg, out string) error {
+	if b.env["PATH"] == "" {
+		return errors.New("build: PATH is empty")
+	}
+	return b.inner.Build(src, pkg, out)
+}
+
 func TestCallerShapesAcrossHostStates(t *testing.T) {
-	shapes := []string{"loadout-merge post-merge step", "loadout-post-merge", "operator by hand"}
+	shapes := []callerShape{
+		{
+			// Non-interactive, no tty, minimal PATH, HOME unset.
+			name: "post-merge step",
+			env:  map[string]string{"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+			tty:  false,
+			argv: func(v string) []string { return []string{"--values", v} },
+		},
+		{
+			name: "operator by hand",
+			env:  map[string]string{"PATH": "/usr/local/bin:/usr/bin", "HOME": "/root", "TERM": "xterm", "LANG": "C.UTF-8"},
+			tty:  true,
+			argv: func(v string) []string { return []string{"--values=" + v} },
+		},
+		{
+			// Same stripped environment as the post-merge step, but it
+			// always meets a host an earlier run already converged.
+			name: "rerun",
+			env:  map[string]string{"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+			tty:  false,
+			argv: func(v string) []string { return []string{"--values", v} },
+		},
+	}
 	states := []string{"not installed", "changed unit", "converged"}
 	vp := writeValues(t, updateValues)
 	v, err := update.LoadValues(vp)
@@ -121,14 +168,20 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 	}
 	for _, shape := range shapes {
 		for _, state := range states {
-			t.Run(shape+"/"+state, func(t *testing.T) {
+			t.Run(shape.name+"/"+state, func(t *testing.T) {
 				deps, f, sd := newDeps(true, nil)
-				if state != "not installed" {
+				deps.Builder = envBuilder{cmdBuilder{f, "bin"}, shape.env}
+				effective := state
+				if shape.name == "rerun" {
+					// A rerun is only meaningful against a converged host.
+					effective = "converged"
+				}
+				if effective != "not installed" {
 					f.files[v.UnitPath()] = v.RenderUnit()
 					f.files[v.Binary.InstallPath] = []byte("bin")
 					sd.active[v.UnitName()], sd.enabled[v.UnitName()] = true, true
 				}
-				if state == "changed unit" {
+				if effective == "changed unit" {
 					f.files[v.UnitPath()] = []byte("old")
 					sd.active["sync.timer"], sd.enabled["sync.timer"] = true, true
 				}
@@ -136,11 +189,14 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 				for run := 1; run <= 2; run++ {
 					out.Reset()
 					sd.calls = nil
-					if rc := runUpdateWith([]string{"--values", vp}, deps, &out, &errb); rc != 0 {
+					if rc := runUpdateWith(shape.argv(vp), deps, &out, &errb); rc != 0 {
 						t.Fatalf("run %d rc=%d stderr=%s", run, rc, errb.String())
 					}
-					if run == 1 && state == "converged" && len(sd.calls) != 0 {
+					if run == 1 && effective == "converged" && len(sd.calls) != 0 {
 						t.Fatalf("converged host mutated: %v", sd.calls)
+					}
+					if !shape.tty && strings.Contains(errb.String(), "[Y/n]") {
+						t.Fatalf("non-interactive shape was prompted: %s", errb.String())
 					}
 					if run == 2 && (len(sd.calls) != 0 || !strings.Contains(out.String(), "no changes")) {
 						t.Fatalf("second run not a no-op: calls=%v out=%s", sd.calls, out.String())
@@ -151,6 +207,18 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A shape whose environment lacks PATH must fail loudly, proving the stripped
+// shapes really exercise the environment dependency.
+func TestBuildNeedsPATH(t *testing.T) {
+	vp := writeValues(t, updateValues)
+	deps, f, _ := newDeps(true, nil)
+	deps.Builder = envBuilder{cmdBuilder{f, "bin"}, map[string]string{}}
+	var out, errb bytes.Buffer
+	if rc := runUpdateWith([]string{"--values", vp}, deps, &out, &errb); rc != update.ExitApply {
+		t.Fatalf("rc=%d want %d", rc, update.ExitApply)
 	}
 }
 
@@ -182,10 +250,19 @@ func TestUpdateExitCodes(t *testing.T) {
 	}
 }
 
-func TestUpdateRegisteredInMain(t *testing.T) {
-	src, err := os.ReadFile("main.go")
-	if err != nil || !strings.Contains(string(src), `os.Args[1] == "update"`) {
-		t.Fatalf("update dispatch missing from main.go: %v", err)
+func TestDispatchRoutesSubcommands(t *testing.T) {
+	// "update" with no --values reaches the update handler and returns its
+	// invalid-input code without touching the host.
+	if rc, handled := dispatch([]string{"update"}); !handled || rc != update.ExitInvalid {
+		t.Fatalf("update: rc=%d handled=%v, want rc=%d handled=true", rc, handled, update.ExitInvalid)
+	}
+	if rc, handled := dispatch([]string{"update", "--help"}); !handled || rc != update.ExitInvalid {
+		t.Fatalf("update --help: rc=%d handled=%v", rc, handled)
+	}
+	for _, args := range [][]string{nil, {"--listen", ":1"}, {"other"}} {
+		if _, handled := dispatch(args); handled {
+			t.Fatalf("dispatch(%v) claimed a non-subcommand", args)
+		}
 	}
 }
 

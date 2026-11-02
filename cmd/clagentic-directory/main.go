@@ -123,13 +123,25 @@ func runInspect(args []string) int {
 	return 0
 }
 
-func main() {
-	// Subcommand dispatch: inspect and update run standalone, before service flag parsing.
-	if len(os.Args) > 1 && os.Args[1] == "inspect" {
-		os.Exit(runInspect(os.Args[2:]))
+// dispatch routes a subcommand (args excludes the program name). handled is
+// false when args do not name a subcommand and the daemon should start.
+func dispatch(args []string) (rc int, handled bool) {
+	if len(args) == 0 {
+		return 0, false
 	}
-	if len(os.Args) > 1 && os.Args[1] == "update" {
-		os.Exit(runUpdate(os.Args[2:]))
+	switch args[0] {
+	case "inspect":
+		return runInspect(args[1:]), true
+	case "update":
+		return runUpdate(args[1:]), true
+	}
+	return 0, false
+}
+
+func main() {
+	// Subcommands run standalone, before service flag parsing.
+	if rc, handled := dispatch(os.Args[1:]); handled {
+		os.Exit(rc)
 	}
 
 	var (

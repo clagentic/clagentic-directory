@@ -11,7 +11,9 @@ unit:
 
 binary:
   install_path: /path/to/bin/clagentic-directory
-  source_dir: /path/to/clagentic-directory-checkout
+  source_dir: /path/to/clagentic-directory-checkout   # git checkout; only its origin URL is used
+  # source_url: ssh://git@git.example.com/org/clagentic-directory.git  # optional; recommended when source_dir is writable by another account
+  # source_ref: release                 # optional; default is the remote's default branch
   # package: ./cmd/clagentic-directory  # optional; this is the default
 
 daemon:

@@ -35,6 +35,23 @@ type Builder interface {
 	Build(srcDir, pkg, outPath string) error
 }
 
+// Source produces a private export of reviewed source. It never reads or
+// modifies the working tree, branch or index of srcDir.
+type Source interface {
+	// Export fetches ref (the remote default branch when empty) from fetchURL,
+	// or from srcDir's origin when fetchURL is empty, and exports that exact
+	// commit into a fresh private directory.
+	Export(srcDir, fetchURL, ref string) (*Export, error)
+}
+
+// Export is a private tree holding one commit's files.
+type Export struct {
+	Dir    string
+	Commit string
+	// Cleanup removes Dir. Always safe to call.
+	Cleanup func()
+}
+
 // Host answers questions about the executing process.
 type Host interface {
 	IsPrivileged() bool
@@ -45,6 +62,7 @@ type Deps struct {
 	FS      FS
 	Systemd Systemd
 	Prober  Prober
+	Source  Source
 	Builder Builder
 	Host    Host
 	Sleep   func(time.Duration)

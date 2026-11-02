@@ -18,6 +18,7 @@ func SystemDeps() Deps {
 		FS:      OSFS{},
 		Systemd: ExecSystemd{Run: runCommand},
 		Prober:  HTTPProber{Client: &http.Client{Timeout: 5 * time.Second}},
+		Source:  GitSource{Run: runGit},
 		Builder: GoBuilder{Run: runCommand},
 		Host:    osHost{},
 		Sleep:   time.Sleep,
@@ -143,7 +144,7 @@ func (p HTTPProber) Ready(url, token string) error {
 type GoBuilder struct{ Run CommandRunner }
 
 func (b GoBuilder) Build(srcDir, pkg, outPath string) error {
-	if out, err := b.Run("go", "build", "-C", srcDir, "-o", outPath, pkg); err != nil {
+	if out, err := b.Run("go", "build", "-C", srcDir, "-o", outPath, "--", pkg); err != nil {
 		return fmt.Errorf("go build: %v: %s", err, out)
 	}
 	return nil

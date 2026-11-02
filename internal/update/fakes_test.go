@@ -124,15 +124,37 @@ type fakeBuilder struct {
 	content string
 	err     error
 	built   int
+	srcDirs []string
 }
 
-func (b *fakeBuilder) Build(_, _, out string) error {
+func (b *fakeBuilder) Build(src, _, out string) error {
 	b.built++
+	b.srcDirs = append(b.srcDirs, src)
 	if b.err != nil {
 		return b.err
 	}
 	b.fs.files[out] = []byte(b.content)
 	return nil
+}
+
+// fakeSource models source_dir: a checkout on a feature branch with a dirty
+// tracked file, whose reviewed ref lives only in the object store.
+type fakeSource struct {
+	err       error
+	commit    string
+	calls     []string // "srcDir@ref"
+	urls      []string
+	cleanups  int
+	exportDir string
+}
+
+func (f *fakeSource) Export(src, fetchURL, ref string) (*Export, error) {
+	f.calls = append(f.calls, src+"@"+ref)
+	f.urls = append(f.urls, fetchURL)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &Export{Dir: f.exportDir, Commit: f.commit, Cleanup: func() { f.cleanups++ }}, nil
 }
 
 type fakeHost struct{ root bool }
@@ -144,12 +166,14 @@ type rig struct {
 	sd *fakeSystemd
 	pr *fakeProber
 	bd *fakeBuilder
+	sc *fakeSource
 	d  Deps
 }
 
 func newRig() *rig {
 	m := newMemFS()
-	r := &rig{fs: m, sd: newFakeSystemd(), pr: &fakeProber{}, bd: &fakeBuilder{fs: m, content: "binary-v1"}}
-	r.d = Deps{FS: m, Systemd: r.sd, Prober: r.pr, Builder: r.bd, Host: fakeHost{root: true}, Sleep: func(time.Duration) {}}
+	r := &rig{fs: m, sd: newFakeSystemd(), pr: &fakeProber{}, bd: &fakeBuilder{fs: m, content: "binary-v1"},
+		sc: &fakeSource{commit: "0123456789abcdef0123456789abcdef01234567", exportDir: "/private/export"}}
+	r.d = Deps{FS: m, Systemd: r.sd, Prober: r.pr, Source: r.sc, Builder: r.bd, Host: fakeHost{root: true}, Sleep: func(time.Duration) {}}
 	return r
 }

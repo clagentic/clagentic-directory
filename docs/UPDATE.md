@@ -17,9 +17,10 @@ In order:
 
 1. Validate the whole values file and check privilege. Nothing is written
    before both pass.
-2. Build the binary from `binary.source_dir` into a staged file beside
-   `binary.install_path` (`<install_path>.update-new`). A build failure leaves
-   the host untouched.
+2. Export the reviewed commit (see Binary currency) into a private temp
+   directory and build it into a staged file beside `binary.install_path`
+   (`<install_path>.update-new`). A fetch, ref or build failure leaves the
+   host untouched. The built commit is printed as `source: built commit <sha>`.
 3. Render the unit. If it differs from the installed one, write it through a
    temp file and rename, then run `systemctl daemon-reload`.
 4. If the built binary's SHA-256 differs from the installed one, rename the
@@ -39,20 +40,81 @@ had already changed; fix the cause and run it again.
 
 ## Binary currency
 
-One mode: rebuild from a source checkout. `binary.source_dir` is a checkout of
-this repository (kept current by whatever deploys it, for example a merge
-step); update runs `go build -C <source_dir> -o <staged> <binary.package>`.
-The host needs the Go toolchain on `PATH` and a usable `HOME` (or `GOCACHE`)
-for the invoking user. The Makefile is not used.
+One mode: rebuild from a reviewed ref. Update never builds from the working
+tree of `binary.source_dir`, so the branch, uncommitted changes or untracked
+files a builder left there cannot reach the installed binary.
+
+1. Take the fetch URL: `binary.source_url` when set (then `source_dir` is not
+   read at all). When unset, read the `origin` URL from `binary.source_dir`
+   with `git config --get remote.origin.url` only (no hooks, no fsmonitor);
+   its working tree, branch and index are never read or modified.
+2. In a private temporary repository, fetch `binary.source_ref` from that URL;
+   when unset, fetch the remote's default branch (`HEAD`, resolved by the
+   remote, not assumed to be `main`).
+3. Export that exact commit into a private temporary directory and run
+   `go build -C <export> -o <staged> -- <binary.package>` there. The directory is
+   removed afterwards, success or not.
+
+### Fetch URL trust
+
+`source_dir/.git/config` is writable by whoever owns that checkout, and update
+fetches and builds as root. With no `source_url`, that account can point
+`origin` at any repository and root will build and install it. **Set
+`binary.source_url` whenever `source_dir` is writable by any account other than
+the one running update.** The values file comes from your reviewed config repo,
+so the URL is then reviewed too.
+
+Whichever way the URL is found, the fetch runs with `protocol.allow=never` and
+only https and ssh allowed. A URL with another scheme (`file://`, `ext::`,
+`git://`, `http://`, a local path, or the scp-like `user@host:path` form) is
+refused: exit 2 for `source_url` (checked with the whole values file, before any
+write), exit 4 for an `origin` URL. The URL is never printed. Use
+`ssh://user@host/path` in place of the scp-like form.
+
+The fetch goes to a private repository rather than into `source_dir`: that
+checkout is usually owned by another account, and a root-run fetch would leave
+root-owned objects in it. Option (b) (refuse when `source_dir` is dirty or
+behind) was rejected because the host's correctness would still depend on
+someone keeping that tree on the ref, and a refusal would block a deployment
+repo's post-merge step.
+
+Requirements: the `git` binary and the Go toolchain on `PATH`, a usable `HOME`
+(or `GOCACHE`) for the invoking user, and credentials for the `origin` remote
+as the invoking user. `GIT_DIR`, `GIT_WORK_TREE` and the other
+repository-location variables are dropped from git's environment, so a caller
+running inside a git hook is unaffected. The Makefile is not used.
+
+If `source_ref` names a ref the remote does not have, the fetch fails, or the
+`origin` URL uses a disallowed transport, update exits 4 before writing
+anything. If `source_dir` has no `origin` remote or is
+not a git repository, it exits 2 before writing anything and names
+`source_dir`. If reading the remote fails for another reason (no `git` binary,
+a permission error), it exits 4 with git's error text; the URL is never printed.
+
+### Upgrading from the working-tree build
+
+Earlier versions built whatever was checked out in `binary.source_dir`. This
+version fetches `origin` instead, which changes behaviour for existing
+`schema_version: 1` values files:
+
+- Update fetches as the account that runs it (normally root, via the
+  post-merge step), so that account must be able to read `source_dir`'s
+  `origin`, not just the account that owns the checkout.
+- For a private SSH or HTTPS origin, configure credentials for that account
+  (an SSH key or credential helper), or point `origin` at a URL it can read.
+- An unreadable origin fails with exit 4 before any host write. The previous
+  version would have built the local tree in the same situation.
+- Local commits and uncommitted changes in `source_dir` no longer reach the
+  binary: push and merge what you want deployed, or set `source_ref`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Converged, with or without changes |
-| 2 | Invalid values file, unreadable values, or bad usage |
+| 2 | Invalid values file (including a `source_url` that is not https or ssh), unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
 | 3 | Insufficient privilege (not root) |
-| 4 | Apply failure (build, file write, systemctl) |
+| 4 | Apply failure (fetch or unknown `source_ref`, build, file write, systemctl) |
 | 5 | `/readyz` did not pass in time; inspect with `journalctl -u <unit>` |
 
 ## Values schema (`schema_version: 1`)
@@ -75,8 +137,10 @@ own defaults apply.
 | Key | Required | Meaning |
 |---|---|---|
 | `install_path` | yes | Where the binary is installed; the unit's `ExecStart`. Its directory must exist. |
-| `source_dir` | yes | Checkout of this repository to build from. |
-| `package` | no | Go package to build, default `./cmd/clagentic-directory`. |
+| `source_dir` | yes | Git checkout of this repository; only its `origin` URL is used, and only when `source_url` is unset. Its state does not affect the build. |
+| `source_url` | no | `https://` or `ssh://` URL to fetch from. When set, `source_dir`'s git config is never read. Default: `source_dir`'s `origin`. Recommended whenever `source_dir` is writable by another account (see Fetch URL trust). Adding it keeps `schema_version: 1`. |
+| `source_ref` | no | Ref to build, fetched from `origin` (branch, tag or full ref name). Default: the remote's default branch. Must not start with `-` or contain whitespace. Adding it keeps `schema_version: 1`. |
+| `package` | no | Go package to build, default `./cmd/clagentic-directory`. Must not start with `-` or contain whitespace. Passed to `go build` after `--`. |
 
 ### `daemon`
 

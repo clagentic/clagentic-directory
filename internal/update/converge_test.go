@@ -329,3 +329,159 @@ func TestReadyzRetriesThenSucceedsWithToken(t *testing.T) {
 		t.Fatalf("calls=%d token=%q", r.pr.calls, r.pr.token)
 	}
 }
+
+func TestBuildsExportedCommitNotSourceDir(t *testing.T) {
+	v := testValues(t)
+	v.Binary.SourceRef = "release"
+	r := newRig()
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.sc.calls) != 1 || r.sc.calls[0] != "/src@release" {
+		t.Fatalf("export calls = %v", r.sc.calls)
+	}
+	// source_dir holds a feature branch and a dirty tracked file; the build
+	// input must be the export alone.
+	if len(r.bd.srcDirs) != 1 || r.bd.srcDirs[0] != "/private/export" {
+		t.Fatalf("built from %v, want only the private export", r.bd.srcDirs)
+	}
+	if res.Commit != r.sc.commit {
+		t.Fatalf("commit = %q", res.Commit)
+	}
+	if r.sc.cleanups != 1 {
+		t.Fatalf("export cleanups = %d", r.sc.cleanups)
+	}
+}
+
+func TestEmptySourceRefMeansRemoteDefault(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	if r.sc.calls[0] != "/src@" {
+		t.Fatalf("export calls = %v", r.sc.calls)
+	}
+}
+
+func TestSourceFailuresWriteNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"unknown ref", errors.New("git fetch: exit status 128: couldn't find remote ref nope"), ExitApply},
+		{"fetch failure", errors.New("git fetch: exit status 128: unable to access remote"), ExitApply},
+		{"not a checkout", ErrNotCheckout, ExitInvalid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := testValues(t)
+			r := newRig()
+			seedConverged(r, v)
+			r.fs.files[v.UnitPath()] = []byte("stale unit")
+			r.bd.content = "binary-v2"
+			r.sc.err = c.err
+			before := r.fs.paths()
+			res, err := Converge(r.d, v)
+			if code(err) != c.want {
+				t.Fatalf("code = %d err=%v", code(err), err)
+			}
+			if r.bd.built != 0 || len(r.fs.log) != 0 || len(r.sd.calls) != 0 {
+				t.Fatalf("host touched: built=%d fs=%v systemd=%v", r.bd.built, r.fs.log, r.sd.calls)
+			}
+			if strings.Join(r.fs.paths(), ",") != strings.Join(before, ",") || res.Changed() || res.Commit != "" {
+				t.Fatalf("files=%v res=%+v", r.fs.paths(), res)
+			}
+		})
+	}
+}
+
+func TestInvalidPackageIsRejected(t *testing.T) {
+	for _, pkg := range []string{"-toolexec=x", "a b", "a\nb"} {
+		v := testValues(t)
+		v.Binary.Package = pkg
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "binary.package") {
+			t.Fatalf("package %q accepted: %v", pkg, err)
+		}
+	}
+}
+
+func TestInvalidSourceRefIsRejected(t *testing.T) {
+	for _, ref := range []string{"-upload-pack=x", "a b", "a\nb"} {
+		v := testValues(t)
+		v.Binary.SourceRef = ref
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "binary.source_ref") {
+			t.Fatalf("ref %q accepted: %v", ref, err)
+		}
+	}
+	v := testValues(t)
+	v.Binary.SourceRef = "refs/heads/release/1.x"
+	if err := v.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceURLIsPassedToSource(t *testing.T) {
+	v := testValues(t)
+	v.Binary.SourceURL = "https://git.example.invalid/reviewed.git"
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.sc.urls) != 1 || r.sc.urls[0] != v.Binary.SourceURL {
+		t.Fatalf("urls = %v", r.sc.urls)
+	}
+}
+
+func TestInvalidSourceURLExitsInvalidWithoutHostWrites(t *testing.T) {
+	for _, u := range []string{"file:///srv/evil", "ext::sh -c id", "/srv/evil", "git@host.example:org/r.git", "http://h.example/r"} {
+		v := testValues(t)
+		v.Binary.SourceURL = u
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "binary.source_url") || strings.Contains(err.Error(), "evil") {
+			t.Fatalf("url %q: %v", u, err)
+		}
+		r := newRig()
+		seedConverged(r, v)
+		r.fs.files[v.UnitPath()] = []byte("stale unit")
+		before := r.fs.paths()
+		_, err := Converge(r.d, v)
+		if code(err) != ExitInvalid {
+			t.Fatalf("url %q: code = %d err=%v", u, code(err), err)
+		}
+		if len(r.sc.calls) != 0 || r.bd.built != 0 || len(r.fs.log) != 0 || len(r.sd.calls) != 0 ||
+			strings.Join(r.fs.paths(), ",") != strings.Join(before, ",") {
+			t.Fatalf("host touched for %q: fs=%v systemd=%v", u, r.fs.log, r.sd.calls)
+		}
+	}
+	v := testValues(t)
+	v.Binary.SourceURL = "ssh://git@host.example/org/r.git"
+	if err := v.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFileOriginFallbackExitsApplyWithoutHostWrites(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	seedConverged(r, v)
+	r.fs.files[v.UnitPath()] = []byte("stale unit")
+	before := r.fs.paths()
+	gitCalls := 0
+	r.d.Source = GitSource{Run: func(_ string, args ...string) (string, error) {
+		gitCalls++
+		return "file:///srv/evil", nil
+	}}
+	_, err := Converge(r.d, v)
+	if code(err) != ExitApply {
+		t.Fatalf("code = %d err=%v", code(err), err)
+	}
+	if strings.Contains(err.Error(), "evil") {
+		t.Fatalf("error echoes the URL: %v", err)
+	}
+	if gitCalls != 1 || r.bd.built != 0 || len(r.fs.log) != 0 || len(r.sd.calls) != 0 ||
+		strings.Join(r.fs.paths(), ",") != strings.Join(before, ",") {
+		t.Fatalf("git=%d built=%d fs=%v systemd=%v", gitCalls, r.bd.built, r.fs.log, r.sd.calls)
+	}
+}

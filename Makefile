@@ -20,13 +20,19 @@ export GOMODCACHE
 endif
 endif
 
-.PHONY: build test vet fmt check
+.PHONY: build test test-json vet fmt check
 
 build:
 	go build -C $(ROOT) -o clagentic-directory ./cmd/clagentic-directory
 
 test:
 	go test -C $(ROOT) ./...
+
+# JSON event stream for scripts/go-test-junit.py. The converter runs this target
+# rather than go directly so the cache fallback above has one owner.
+PKGS ?= ./...
+test-json:
+	go test -C $(ROOT) -json $(PKGS)
 
 vet:
 	go vet -C $(ROOT) ./...

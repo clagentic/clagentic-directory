@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run `go test -json` and write a JUnit XML report.
+"""Run the Makefile `test-json` target (`go test -json`) and write a JUnit XML report.
 
 Usage: go-test-junit.py JUNIT_PATH [go test args...]   (default package arg: ./...)
 
@@ -11,38 +11,56 @@ import json
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+PACKAGE_CASE = "[package]"
 
 
 def convert(events):
-    """Return {(package, test): {"status", "output"}} from go test -json events."""
+    """Return {(package, test): {"status", "output"}} from go test -json events.
+
+    Package-level events (no test name) are recorded under PACKAGE_CASE so a
+    build failure or a package that failed outside any test is not lost.
+    """
     results = {}
     for ev in events:
-        test = ev.get("Test")
-        if not test:
-            continue
-        rec = results.setdefault((ev.get("Package", ""), test), {"status": None, "output": []})
+        pkg = ev.get("Package") or ev.get("ImportPath") or ""
+        test = ev.get("Test") or PACKAGE_CASE
+        rec = results.setdefault((pkg, test), {"status": None, "output": []})
         action = ev.get("Action")
-        if action == "output":
+        if action in ("output", "build-output"):
             rec["output"].append(ev.get("Output", ""))
         elif action in ("pass", "fail", "skip"):
             rec["status"] = action
+        elif action == "build-fail":
+            rec["status"] = "fail"
     return results
+
+
+def _failure(case, message, output):
+    failure = ET.SubElement(case, "failure", message=message)
+    failure.text = "".join(output)
 
 
 def build_xml(results):
     root = ET.Element("testsuites")
     suites = {}
     for (pkg, test), rec in sorted(results.items()):
-        if rec["status"] is None:
+        status = rec["status"]
+        if test == PACKAGE_CASE and status != "fail":
+            # A package that passed or was skipped needs no case of its own.
             continue
         suite = suites.get(pkg)
         if suite is None:
             suite = suites[pkg] = ET.SubElement(root, "testsuite", name=pkg)
         case = ET.SubElement(suite, "testcase", classname=pkg, name=test)
-        if rec["status"] == "fail":
-            failure = ET.SubElement(case, "failure", message="test failed")
-            failure.text = "".join(rec["output"])
-        elif rec["status"] == "skip":
+        if status == "fail":
+            message = "package failed" if test == PACKAGE_CASE else "test failed"
+            _failure(case, message, rec["output"])
+        elif status is None:
+            _failure(case, "no terminal action (test started but never finished)", rec["output"])
+        elif status == "skip":
             ET.SubElement(case, "skipped")
     for suite in suites.values():
         cases = list(suite)
@@ -52,14 +70,24 @@ def build_xml(results):
     return ET.ElementTree(root)
 
 
-def main(argv):
+def run_make_test_json(go_args):
+    """Run the Makefile's test-json target, the single owner of the go cache fallback."""
+    repo_root = Path(__file__).resolve().parent.parent
+    return subprocess.run(
+        ["make", "-s", "test-json", "PKGS=" + " ".join(go_args)],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def main(argv, runner=run_make_test_json):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
     junit_path, go_args = argv[1], argv[2:] or ["./..."]
-    proc = subprocess.run(
-        ["go", "test", "-json", *go_args], stdout=subprocess.PIPE, text=True, check=False
-    )
+    proc = runner(go_args)
     events = []
     for line in proc.stdout.splitlines():
         try:

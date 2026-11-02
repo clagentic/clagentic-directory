@@ -32,7 +32,9 @@ test:
 # test-json runs go test -json and writes the event stream to GOTEST_JSON. It is
 # the one place the crew test tier's go invocation lives, so it gets the cache
 # fallback above. scripts/go_test_junit.py calls it and converts the stream.
-# PKGS is a space-separated package list (default: every package); the caller
+# PKGS is a space-separated package list (default: every package, for a hand
+# run; the converter always passes it on the command line, which overrides the
+# environment and this default); the caller
 # has already restricted it to [A-Za-z0-9_./-], so the shell split is lossless.
 # Exit code: 0 when every test passes; 2 when go test fails, whether from a
 # failing test or a build failure (make reports a failed recipe as 2, so the two

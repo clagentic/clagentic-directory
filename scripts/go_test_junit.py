@@ -251,13 +251,19 @@ def write_junit(tree: ET.ElementTree, path: Path) -> None:
         tree.write(handle, encoding="utf-8", xml_declaration=True)
 
 
+ALL_PACKAGES = ["./..."]
+
+
 def run_make(
     make: str, root: Path, json_path: Path, packages: Sequence[str]
 ) -> tuple[int, str]:
     """Run the Makefile's test-json target; returns (make exit code, stderr text)."""
-    argv = [make, "-s", "-C", str(root), "test-json", f"GOTEST_JSON={json_path}"]
-    if packages:
-        argv.append("PKGS=" + " ".join(packages))
+    # PKGS is always passed: a command-line variable overrides both the
+    # environment and the Makefile's `?=`, so an inherited PKGS cannot narrow a run.
+    argv = [
+        make, "-s", "-C", str(root), "test-json",
+        f"GOTEST_JSON={json_path}", "PKGS=" + " ".join(packages),
+    ]
     try:
         proc = subprocess.run(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -278,7 +284,7 @@ def run(make: str, root: Path, junit_path: Path, packages: Sequence[str] | None)
         return EXIT_OK
     with tempfile.TemporaryDirectory(prefix="go-test-json-") as scratch:
         json_path = Path(scratch) / "events.jsonl"
-        code, stderr = run_make(make, root, json_path, packages or [])
+        code, stderr = run_make(make, root, json_path, ALL_PACKAGES if packages is None else packages)
         try:
             with open(json_path, encoding="utf-8", errors="replace") as handle:
                 ev = parse_events(handle)

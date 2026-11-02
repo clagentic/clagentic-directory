@@ -17,6 +17,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -200,6 +201,14 @@ class ExitContractTest(unittest.TestCase):
         code = self._run(make, "files", "internal/update/a_test.go", "internal/update/b.go", "README.md")
         self.assertEqual(code, 0)
         self.assertEqual((self.dir / "make.pkgs").read_text().strip(), "PKGS=./internal/update")
+
+    def test_full_passes_all_packages_despite_inherited_pkgs(self):
+        events = self.dir / "ok.jsonl"
+        events.write_text('{"Action":"pass","Package":"p","Elapsed":0.1}\n')
+        make = self._fake_make(events, 0)
+        with mock.patch.dict(os.environ, {"PKGS": "./internal/api"}):
+            self.assertEqual(self._run(make, "full"), 0)
+        self.assertEqual((self.dir / "make.pkgs").read_text().strip(), "PKGS=./...")
 
     def test_files_with_only_non_go_paths_is_a_passing_noop(self):
         make = self._fake_make(_FIXTURE, 2)

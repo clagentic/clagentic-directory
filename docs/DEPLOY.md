@@ -9,8 +9,13 @@ go build -o clagentic-directory ./cmd/clagentic-directory/
 ./clagentic-directory \
   --registry-source file \
   --registry-dir /path/to/your/registry \
+  --vocab-file /path/to/your/vocabulary.v1.yaml \
   --listen :8444
 ```
+
+`--vocab-file` enables strict vocabulary validation. Start from
+`examples/vocabulary.v1.yaml` (see "Vocabulary" below). Omitting it starts the daemon
+in ValidateOpen mode, which accepts any vocabulary value and logs an UNSAFE warning.
 
 Verify:
 
@@ -28,6 +33,18 @@ The service hot-reloads when files in the registry directory change — no resta
 
 ## systemd unit example
 
+Replace every `<PLACEHOLDER>` before use:
+
+| Placeholder | Meaning |
+|---|---|
+| `<SERVICE_USER>` | Unprivileged account that runs the daemon. Needs read access to the registry dir and vocabulary file. |
+| `<BIN_PATH>` | Where you installed the `clagentic-directory` binary. |
+| `<REGISTRY_DIR>` | Directory of agent YAML files (`--registry-dir`). |
+| `<VOCAB_FILE>` | Your vocabulary file (`--vocab-file`), started from `examples/vocabulary.v1.yaml`. |
+| `<LISTEN_ADDR>` | Listen address, e.g. `:8444` (`--listen`). |
+| `<LOG_LEVEL>` | `debug`, `info`, `warn` or `error` (`--log-level`). |
+| `<ENV_FILE>` | Optional environment file, e.g. for `CLAGENTIC_DIRECTORY_TOKEN`. |
+
 ```ini
 [Unit]
 Description=clagentic-directory agent registry
@@ -35,27 +52,36 @@ After=network.target
 
 [Service]
 Type=simple
-User=clagentic
+User=<SERVICE_USER>
 SyslogIdentifier=clagentic-directory
-ExecStart=/usr/local/bin/clagentic-directory \
+ExecStart=<BIN_PATH> \
   --registry-source file \
-  --registry-dir /etc/clagentic/registry \
-  --listen :8444
+  --registry-dir <REGISTRY_DIR> \
+  --vocab-file <VOCAB_FILE> \
+  --listen <LISTEN_ADDR> \
+  --log-level <LOG_LEVEL>
 Restart=on-failure
 RestartSec=5s
-EnvironmentFile=-/etc/clagentic/directory/env
+EnvironmentFile=-<ENV_FILE>
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Install:
+`--vocab-file` is deliberately included. Without it the daemon starts in ValidateOpen
+mode: `schema_version: 2` vocabulary values are not validated and any value is accepted.
+Copy `examples/vocabulary.v1.yaml` to `<VOCAB_FILE>` as a starting point and see
+`docs/VOCABULARY.md` for how to extend it.
+
+This repository does not ship a unit file. Write the unit above to a file of your choice
+(`<UNIT_FILE>`, e.g. `clagentic-directory.service`) under your systemd unit directory
+(`<SYSTEMD_UNIT_DIR>`), then install and enable it:
 
 ```bash
-cp clagentic-directory /usr/local/bin/
-cp deploy/clagentic-directory.service /etc/systemd/system/
+install -m 0755 clagentic-directory <BIN_PATH>
+# write the unit text above to <SYSTEMD_UNIT_DIR>/<UNIT_FILE>
 systemctl daemon-reload
-systemctl enable --now clagentic-directory
+systemctl enable --now <UNIT_FILE>
 ```
 
 ---
@@ -71,9 +97,11 @@ services:
       - "8444:8444"
     volumes:
       - ./registry:/registry:ro
+      - ./vocabulary.v1.yaml:/vocabulary.v1.yaml:ro
     command:
       - --registry-source=file
       - --registry-dir=/registry
+      - --vocab-file=/vocabulary.v1.yaml
       - --listen=:8444
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8444/healthz"]
@@ -102,10 +130,15 @@ Run with git source:
   --registry-git-ref main \
   --registry-git-poll 60s \
   --registry-git-subpath registry/ \
+  --registry-git-vocab vocabulary.v1.yaml \
   --registry-cache-dir /var/cache/clagentic-directory/registry \
   --registry-secret-keyfile /etc/clagentic/registry-deploy-key \
   --listen :8444
 ```
+
+`--registry-git-vocab` is the path of the vocabulary file inside the git repository.
+Use `--vocab-file` instead if the vocabulary file lives on local disk. Omitting both
+starts the daemon in ValidateOpen mode (UNSAFE).
 
 The service clones once at startup and re-fetches on the poll interval. The local cache survives restarts; a restart with the cache present skips the initial clone.
 
@@ -137,23 +170,32 @@ this on first creation, but verify after manual interventions.
 
 ---
 
-## Vocabulary extensions
+## Vocabulary
 
-The base vocabulary is a closed set. To allow `schema_version: 2` entries that use
-platform-specific values (custom trust labels, formats, intents, or conversation kinds),
-supply a vocabulary extensions file:
+The base vocabulary is a closed set. Pass a vocabulary file with `--vocab-file` to
+enable strict validation of `schema_version: 2` entries (ValidateStrict mode):
 
 ```bash
 ./clagentic-directory \
   --registry-source file \
   --registry-dir /path/to/your/registry \
-  --vocabulary-extensions /etc/clagentic/vocab-extensions.yaml \
+  --vocab-file /path/to/your/vocabulary.v1.yaml \
   --listen :8444
 ```
 
-The extensions file is a YAML file with four optional lists. See
-`examples/vocabulary-extensions.yaml` for the format and `docs/VOCABULARY.md` for a
-description of when to use extensions vs. proposing additions to the base vocabulary.
+Start from `examples/vocabulary.v1.yaml`. Add platform-specific trust labels, formats,
+intents or conversation kinds directly to your copy. `docs/VOCABULARY.md` describes the
+vocabulary and when to extend your file versus proposing additions to the base set.
+
+Without `--vocab-file` the daemon starts in ValidateOpen mode and accepts any
+vocabulary value; it logs an UNSAFE warning at startup. Do not run production this way.
+For a git source, `--registry-git-vocab` names the vocabulary file inside the repo.
+
+### Deprecated: `--vocabulary-extensions`
+
+`--vocabulary-extensions <file>` merges extra values into the base enums from a
+separate YAML file. It is deprecated: the daemon logs a warning when it is used.
+Migrate to `--vocab-file`. See `examples/vocabulary-extensions.yaml` for the old format.
 
 ---
 

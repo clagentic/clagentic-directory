@@ -19,8 +19,10 @@ paths:
 # scripts/go_test_junit.py, which asks the Makefile (test-json) to run go test and
 # converts the result. Exit code of each: 0 all passed (or `files` selected no Go
 # package); 2 go test failed, by a failing test or a build failure, both written to
-# the JUnit report as failing cases; 64 a changed path that cannot be passed to
-# go test safely; any other code is make's own (127: make not installed). `files`
+# the JUnit report as failing cases (make's code for a failed recipe); 1 make
+# succeeded but the event stream holds a failing case; 64 usage error, or a path
+# that cannot be passed to go test safely (no report written); any other code is
+# make's own (for example 127 when make is not installed). `files`
 # receives repo-relative paths, maps each .go file to its package directory,
 # deduplicates, and skips every non-Go file. See CONTRIBUTING.md.
 test:

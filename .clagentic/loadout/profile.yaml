@@ -15,7 +15,3 @@ paths:
   ".clagentic/loadout/config.yaml": {class: internal}
   # Crew enrollment config for this deployment.
   ".crew/**": {class: internal}
-# The Go toolchain writes no JUnit; the script converts go test -json and keeps go test's exit code.
-test:
-  full: [python3, scripts/go-test-junit.py, "{junit}", ./...]
-  files: [python3, scripts/go-test-junit.py, "{junit}"]

@@ -5,20 +5,21 @@
 
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-# Go refuses to build when it cannot derive a cache location (no GOCACHE and
-# neither XDG_CACHE_HOME nor HOME set), which is the case in a stripped service
-# environment. Only in that case, fall back to a repo-local, gitignored dir.
-# Any value the caller or the toolchain environment supplies wins.
-ifeq ($(origin GOCACHE)$(origin GOPATH)$(origin GOMODCACHE),undefinedundefinedundefined)
-ifeq ($(HOME)$(XDG_CACHE_HOME),)
-GOCACHE    := $(ROOT)/.gocache/build
-GOPATH     := $(ROOT)/.gocache/path
-GOMODCACHE := $(ROOT)/.gocache/path/pkg/mod
+# Go needs a build cache, a GOPATH and a module cache, and derives each from
+# the environment: GOCACHE from XDG_CACHE_HOME or HOME, GOPATH from HOME, and
+# GOMODCACHE from GOPATH. In a stripped service environment those are absent
+# and go refuses to build. Each location is decided on its own, and only when
+# Go would have no way to derive it; a value the caller set is never replaced.
+ifeq ($(GOCACHE)$(XDG_CACHE_HOME)$(HOME),)
+GOCACHE := $(ROOT)/.gocache/build
 export GOCACHE
+endif
+ifeq ($(GOPATH)$(HOME),)
+GOPATH := $(ROOT)/.gocache/gopath
 export GOPATH
-export GOMODCACHE
 endif
-endif
+# GOMODCACHE needs no fallback of its own: Go derives it from GOPATH, which is
+# either the caller's value or the one set above.
 
 .PHONY: build test vet fmt check
 

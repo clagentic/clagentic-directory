@@ -203,6 +203,9 @@ func (v *Values) Validate() error {
 		add("unit.user: %q is not a valid account name", v.Unit.User)
 	}
 	optAbs(&errs, "unit.env_file", v.Unit.EnvFile)
+	if strings.ContainsAny(v.Unit.EnvFile, " \t") {
+		add("unit.env_file: %q contains whitespace; systemd reads this value unquoted", v.Unit.EnvFile)
+	}
 
 	reqAbs("binary.install_path", v.Binary.InstallPath)
 	reqAbs("binary.source_dir", v.Binary.SourceDir)

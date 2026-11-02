@@ -82,7 +82,7 @@ func TestRenderUnitGitMode(t *testing.T) {
 		"ExecStart=/bin/clagentic-directory \\\n  --registry-source git \\\n",
 		"  --registry-git-url git@git.example.com:org/reg.git \\\n",
 		"  --registry-git-poll 60s \\\n  --registry-cache-dir /cache\n",
-		"EnvironmentFile=-/etc/dir.env\n",
+		"EnvironmentFile=/etc/dir.env\n",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(got, want) {
@@ -171,5 +171,55 @@ func TestValidateRejectsNonHTTPSelfBuildURL(t *testing.T) {
 		if shared == nil || !strings.Contains(err.Error(), shared.Error()) {
 			t.Errorf("%s: err = %v, want it to contain %v", c.mechanism, err, shared)
 		}
+	}
+}
+
+func TestRenderUnitEnvironmentFileIsRaw(t *testing.T) {
+	v := testValues(t)
+	got := string(v.RenderUnit())
+	if !strings.Contains(got, "\nEnvironmentFile=/etc/dir.env\n") {
+		t.Fatalf("EnvironmentFile line wrong:\n%s", got)
+	}
+	if strings.Contains(got, "EnvironmentFile=-") || strings.Contains(got, `EnvironmentFile="`) {
+		t.Fatalf("EnvironmentFile must be raw and required:\n%s", got)
+	}
+}
+
+func TestValidateRejectsEnvFileWhitespace(t *testing.T) {
+	for _, p := range []string{"/etc/my dir.env", "/etc/a\tb.env", "/etc/a\nb.env"} {
+		v := testValues(t)
+		v.Unit.EnvFile = p
+		if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "unit.env_file") {
+			t.Errorf("env_file %q accepted: %v", p, err)
+		}
+	}
+}
+
+func TestQuoteArgPanicsOnControlBytes(t *testing.T) {
+	for _, in := range []string{"a\nb", "a\rb", "a\x00b", "a\x7fb"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("quoteArg(%q) did not panic", in)
+				}
+			}()
+			quoteArg(in)
+		}()
+	}
+}
+
+func TestRawPathRefusesUnsafeValues(t *testing.T) {
+	for _, in := range []string{"/a b", "/a\tb", "/a\nb"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("rawPath(%q) did not panic", in)
+				}
+			}()
+			rawPath(in)
+		}()
+	}
+	if got := rawPath("/etc/x.env"); got != "/etc/x.env" {
+		t.Fatalf("rawPath altered a clean path: %s", got)
 	}
 }

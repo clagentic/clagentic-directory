@@ -68,7 +68,7 @@ own defaults apply.
 | `dir` | yes | Directory the unit file is written to. |
 | `user` | yes | Account the daemon runs as. |
 | `name` | no | Unit file name, default `clagentic-directory.service`. Must end in `.service`. |
-| `env_file` | no | Rendered as `EnvironmentFile=-<path>`. Put `CLAGENTIC_DIRECTORY_TOKEN` here. |
+| `env_file` | no | Rendered as `EnvironmentFile=<path>` (no `-` prefix: once set, the file must exist or the unit fails to start rather than running without its token). The path must be absolute with no whitespace. Put `CLAGENTIC_DIRECTORY_TOKEN` here. |
 
 ### `binary`
 

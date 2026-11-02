@@ -1,21 +1,38 @@
 package update
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
 
 var safeArg = regexp.MustCompile(`^[A-Za-z0-9_@+=:,./-]+$`)
 
-// quoteArg quotes one ExecStart word using systemd's rules: backslash and
-// double-quote are escaped, and % and $ are doubled so systemd does not
-// expand them.
+// quoteArg quotes one ExecStart word using systemd's command-line rules:
+// backslash and double-quote are escaped, and % and $ are doubled so systemd
+// does not expand them. It must only be used for ExecStart words; directives
+// that take a raw value (EnvironmentFile=) do not unquote. It panics on a
+// control byte, which would let a value inject a new unit line; Validate
+// rejects those first, so a panic means a value path skipped Validate.
 func quoteArg(s string) string {
+	if hasControl(s) {
+		panic(fmt.Sprintf("update: refusing to render control character in unit value %q", s))
+	}
 	if safeArg.MatchString(s) {
 		return s
 	}
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `%`, `%%`, `$`, `$$`)
 	return `"` + r.Replace(s) + `"`
+}
+
+// rawPath returns a path for a directive that systemd reads verbatim. Such a
+// value cannot be quoted, so whitespace or control characters are refused
+// rather than escaped.
+func rawPath(s string) string {
+	if hasControl(s) || strings.ContainsAny(s, " \t") {
+		panic(fmt.Sprintf("update: refusing to render whitespace or control character in raw unit path %q", s))
+	}
+	return s
 }
 
 // DaemonArgs returns the daemon flags, one slice per flag, in a fixed order. Flags the values
@@ -70,7 +87,9 @@ func (v *Values) RenderUnit() []byte {
 	}
 	b.WriteString("\nRestart=on-failure\nRestartSec=5s\n")
 	if v.Unit.EnvFile != "" {
-		b.WriteString("EnvironmentFile=-" + quoteArg(v.Unit.EnvFile) + "\n")
+		// No "-" prefix: a configured env file carries the auth token, so a
+		// missing file must fail the unit start instead of running unauthenticated.
+		b.WriteString("EnvironmentFile=" + rawPath(v.Unit.EnvFile) + "\n")
 	}
 	b.WriteString("\n[Install]\nWantedBy=multi-user.target\n")
 	return []byte(b.String())

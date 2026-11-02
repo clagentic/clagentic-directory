@@ -25,4 +25,4 @@ Summary for this product:
 
 - No direct writes to the live registry at runtime — all self-build output goes to `proposed_changes/`.
 - All self-build URLs (`--self-build-source-watch-url`, `--self-build-usage-event-store-url`,
-  `inspect --mcp-url`) must pass `validateSelfBuildURL()` — http/https only.
+  `inspect --mcp-url`) must pass `selfbuild.ValidateSelfBuildURL()` (internal/selfbuild/urlcheck.go) — http/https only.

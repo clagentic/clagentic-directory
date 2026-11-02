@@ -2,7 +2,8 @@
 
 Converges a host's install from a deployment values file. The tool ships no
 values: keep your values file in your own deployment-config repo and call
-`update` from its post-merge step.
+`update` from its post-merge step, which is the primary caller. A manual run
+with the same argv is also a supported caller shape.
 
 ```bash
 clagentic-directory update --values /path/to/values.yaml

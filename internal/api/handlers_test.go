@@ -59,7 +59,7 @@ func newTestAgent() store.Agent {
 
 // TestAgentCardGAConformance asserts the served card matches the A2A GA v1.0
 // AgentCard field inventory (a2a-sdk 1.1.1, protobuf lf.a2a.v1):
-// see /workspace/a2a/findings/fixtures/agentcard-auth/card-field-inventory.md
+// see a2a/findings/fixtures/agentcard-auth/card-field-inventory.md
 // and 01-agent-card.json for the authoritative wire shape this test is driven
 // from.
 func TestAgentCardGAConformance(t *testing.T) {

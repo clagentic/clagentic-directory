@@ -16,7 +16,7 @@ var sourceFixtureEvents = []selfbuild.SourceEvent{
 		ID:        "ev-001",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/agents/builder/SKILL.md",
+		FilePath:  "/srv/agents/builder/SKILL.md",
 		Agent:     "builder",
 		Diff: `--- a/SKILL.md
 +++ b/SKILL.md
@@ -32,7 +32,7 @@ var sourceFixtureEvents = []selfbuild.SourceEvent{
 		ID:        "ev-002",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/agents/builder/README.md", // not a SKILL.md / AGENT.md
+		FilePath:  "/srv/agents/builder/README.md", // not a SKILL.md / AGENT.md
 		Agent:     "builder",
 		Diff:      "+some readme change",
 	},
@@ -40,7 +40,7 @@ var sourceFixtureEvents = []selfbuild.SourceEvent{
 		ID:        "ev-003",
 		Timestamp: time.Now(),
 		Kind:      "file-diff",
-		FilePath:  "/workspace/agents/diagnostician/AGENT.md",
+		FilePath:  "/srv/agents/diagnostician/AGENT.md",
 		// Agent field empty — should be extracted from path.
 		Diff: `+## Trigger
 +intent: diagnose-failure
@@ -102,13 +102,13 @@ func TestSourceWatcher_SkipsNonAgentDefFiles(t *testing.T) {
 	nonDefEvents := []selfbuild.SourceEvent{
 		{
 			ID:       "ev-readme",
-			FilePath: "/workspace/foo/README.md",
+			FilePath: "/srv/foo/README.md",
 			Agent:    "foo",
 			Diff:     "+some line",
 		},
 		{
 			ID:       "ev-go",
-			FilePath: "/workspace/foo/main.go",
+			FilePath: "/srv/foo/main.go",
 			Agent:    "foo",
 			Diff:     "+func main() {}",
 		},
@@ -132,8 +132,8 @@ func TestSourceWatcher_RateLimit(t *testing.T) {
 	})
 
 	sameAgentEvents := []selfbuild.SourceEvent{
-		{ID: "a", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: build"},
-		{ID: "b", FilePath: "/workspace/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: review"},
+		{ID: "a", FilePath: "/srv/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: build"},
+		{ID: "b", FilePath: "/srv/agents/builder/SKILL.md", Agent: "builder", Diff: "+trigger: review"},
 	}
 
 	written, err := w.ProcessEvents(sameAgentEvents)
@@ -154,7 +154,7 @@ func TestSourceWatcher_NoDirectRegistryWrite(t *testing.T) {
 	})
 
 	events := []selfbuild.SourceEvent{
-		{ID: "x", FilePath: "/workspace/agents/merge-gate/SKILL.md", Agent: "merge-gate", Diff: "+trigger: merge-pr"},
+		{ID: "x", FilePath: "/srv/agents/merge-gate/SKILL.md", Agent: "merge-gate", Diff: "+trigger: merge-pr"},
 	}
 	_, err := w.ProcessEvents(events)
 	if err != nil {

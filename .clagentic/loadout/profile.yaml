@@ -15,3 +15,14 @@ paths:
   ".clagentic/loadout/config.yaml": {class: internal}
   # Crew enrollment config for this deployment.
   ".crew/**": {class: internal}
+# Go has no JUnit output of its own, so both commands go through
+# scripts/go_test_junit.py, which asks the Makefile (test-json) to run go test and
+# converts the result. Exit code of each: 0 all passed (or `files` selected no Go
+# package); 2 go test failed, by a failing test or a build failure, both written to
+# the JUnit report as failing cases; 64 a changed path that cannot be passed to
+# go test safely; any other code is make's own (127: make not installed). `files`
+# receives repo-relative paths, maps each .go file to its package directory,
+# deduplicates, and skips every non-Go file. See CONTRIBUTING.md.
+test:
+  full: [python3, scripts/go_test_junit.py, --junit, "{junit}", full]
+  files: [python3, scripts/go_test_junit.py, --junit, "{junit}", files]

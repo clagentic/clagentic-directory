@@ -108,22 +108,20 @@ func newDeps(root bool, probe error) (update.Deps, *cmdFS, *cmdSD) {
 	return update.Deps{FS: f, Systemd: sd, Prober: cmdProber{probe}, Builder: cmdBuilder{f, "bin"}, Host: cmdHost(root), Sleep: func(time.Duration) {}}, f, sd
 }
 
-// callerShape models how one caller invokes update: its environment, whether
-// a terminal is attached, and the host state it meets. The unprivileged-env
-// shapes matter because update shells out for the build and must not depend on
-// an interactive login.
+// callerShape models how one caller invokes update: its environment and exact
+// argument list. update has no interactive path, so the environment is what
+// differs between callers; it reaches the build step through envBuilder.
 type callerShape struct {
 	name string
 	// env is the full environment the shape runs with.
 	env map[string]string
-	tty bool
 	// argv is the exact argument list the caller passes.
 	argv func(values string) []string
 }
 
-// envDeps wires deps whose builder refuses to run when the environment lacks
-// what a real build needs (PATH to find the toolchain), so an environment-
-// sensitive regression fails in the stripped shapes.
+// envBuilder refuses to build when its environment lacks what a real build
+// needs (PATH to find the toolchain), so a caller shape with a stripped
+// environment fails if update starts to depend on it.
 type envBuilder struct {
 	inner cmdBuilder
 	env   map[string]string
@@ -139,16 +137,14 @@ func (b envBuilder) Build(src, pkg, out string) error {
 func TestCallerShapesAcrossHostStates(t *testing.T) {
 	shapes := []callerShape{
 		{
-			// Non-interactive, no tty, minimal PATH, HOME unset.
+			// Minimal PATH, HOME unset.
 			name: "post-merge step",
 			env:  map[string]string{"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
-			tty:  false,
 			argv: func(v string) []string { return []string{"--values", v} },
 		},
 		{
 			name: "operator by hand",
 			env:  map[string]string{"PATH": "/usr/local/bin:/usr/bin", "HOME": "/root", "TERM": "xterm", "LANG": "C.UTF-8"},
-			tty:  true,
 			argv: func(v string) []string { return []string{"--values=" + v} },
 		},
 		{
@@ -156,7 +152,6 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 			// always meets a host an earlier run already converged.
 			name: "rerun",
 			env:  map[string]string{"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
-			tty:  false,
 			argv: func(v string) []string { return []string{"--values", v} },
 		},
 	}
@@ -194,9 +189,6 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 					}
 					if run == 1 && effective == "converged" && len(sd.calls) != 0 {
 						t.Fatalf("converged host mutated: %v", sd.calls)
-					}
-					if !shape.tty && strings.Contains(errb.String(), "[Y/n]") {
-						t.Fatalf("non-interactive shape was prompted: %s", errb.String())
 					}
 					if run == 2 && (len(sd.calls) != 0 || !strings.Contains(out.String(), "no changes")) {
 						t.Fatalf("second run not a no-op: calls=%v out=%s", sd.calls, out.String())

@@ -1,4 +1,4 @@
-# Repo-tier loadout config (see /workspace/clagentic-loadout/docs/provisioning.md,
+# Repo-tier loadout config (merge-gate keys are in gate.yaml; see /workspace/clagentic-loadout/docs/provisioning.md,
 # "Merge-gate config homes" section). Kept minimal: this repo has no CI runner
 # wired up yet, so the merge gate must not block on a CI signal that will
 # never arrive.
@@ -38,16 +38,8 @@ roles:
 merge:
   merge_requirements:
     ci_pass: false
-  # lr-d3969e: required_reviewer_roles absence is fail-OPEN (unlike
-  # authorized_roles, which is fail-closed on absence) — a merge could land
-  # with zero reviewer/security verdict. This repo's post_merge_steps below
-  # perform a live production deploy on every merge (rebuild + atomic binary
-  # replace + `systemctl restart clagentic-directory.service`), so an
-  # unreviewed merge here restarts a Tier 1 daemon. Declaring the gate here
-  # closes that window. `security` is not in DEFAULT_ROLE_VERBS (see the
-  # `roles:` section above and its comment), so this repo declares its own
-  # `roles:` section rather than relying on the fallback taxonomy.
-  required_reviewer_roles: [reviewer, security]
+  # required_reviewer_roles lives in the tracked gate.yaml (lr-d3969e): the
+  # gate is read from the PR base commit, not from this deployment file.
   # lr-2e0a65: without post_merge_steps, loadout-merge runs ZERO post-merge
   # actions for this repo — a merged PR lands code on main but the running
   # clagentic-directory.service keeps serving the old build (PR #9 merged

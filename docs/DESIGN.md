@@ -45,7 +45,7 @@ Use `--registry-source git --registry-git-url <url>` to activate.
 | GET | `/v1/find?conversation_kind=<x>` | Find agents by conversation kind |
 | GET | `/v1/find?after_agent=<x>` | Find agents by sequencing |
 | GET | `/healthz` | Always 200 — process is alive |
-| GET | `/readyz` | 200 if agents loaded, 503 if none |
+| GET | `/readyz` | 200 if agents loaded, 503 if none. In git mode the body carries `sync.consecutive_failures` and `sync.last_success` (RFC 3339, absent until a fetch succeeds in this process); 503 `registry stale` after 3 consecutive failed fetches |
 | GET | `/.well-known/agent-card.json/{name}` | A2A-compatible agent card |
 
 `/v1/find` bounds each of `intent`, `conversation_kind` and `after_agent` to 256 bytes and 32 post-tokenization terms (`store.MaxFindQueryBytes`, `store.MaxFindQueryTerms`; derivation in `internal/store/querylimits.go`). Over-limit input is rejected before any lookup with HTTP 400 and a JSON body `{"error": ..., "param": ..., "limit": ..., "unit": "bytes"|"terms"}`; it is never truncated.

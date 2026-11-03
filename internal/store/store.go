@@ -60,3 +60,9 @@ type Store interface {
 	// from multiple goroutines.
 	Reload() error
 }
+
+// SyncReporter is implemented by stores that pull from a remote source.
+// The API layer uses it to degrade readiness when the source cannot be reached.
+type SyncReporter interface {
+	SyncStatus() SyncStatus
+}

@@ -30,6 +30,9 @@ type GitStore struct {
 	mu       sync.RWMutex // protects snap; held only for swap and reads
 	snap     snapshot
 
+	syncMu sync.Mutex // protects sync
+	sync   SyncStatus
+
 	done chan struct{}
 }
 
@@ -71,13 +74,25 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 	}
 
 	repoDir := gs.repoDir()
+	freshClone := false
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
+		freshClone = true
 		if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
 			return nil, fmt.Errorf("creating cache dir: %w", err)
 		}
 		if err := gs.runGit("", "clone", "--depth=1", "--branch", cfg.Ref, cfg.URL, repoDir); err != nil {
 			return nil, fmt.Errorf("git clone: %w", err)
 		}
+	}
+
+	// Sync once at startup so a restart (including `clagentic-directory update`)
+	// does not serve a stale cache until the first tick. A freshly cloned repo
+	// is already current. A failed sync is not fatal: the cached clone is still
+	// served, and the failure is surfaced through SyncStatus.
+	if freshClone {
+		gs.recordSync(nil)
+	} else {
+		gs.syncOnce("startup")
 	}
 
 	vocab, mode, err := gs.loadVocab(cfg.Ext)
@@ -155,9 +170,22 @@ func (g *GitStore) runGit(dir string, args ...string) error {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("git %s: %w\n%s", args[0], err, out)
+		return fmt.Errorf("git %s: %w\n%s", gitSubcommand(args), err, out)
 	}
 	return nil
+}
+
+// gitSubcommand returns the git subcommand name, skipping leading `-c k=v`
+// pairs, for error messages (args may carry credentials, so they are not echoed).
+func gitSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-c" {
+			i++
+			continue
+		}
+		return args[i]
+	}
+	return ""
 }
 
 func (g *GitStore) pollLoop() {
@@ -179,17 +207,60 @@ func (g *GitStore) pollLoop() {
 	}
 }
 
+// SyncStatus describes the outcome of the git store's fetch attempts.
+type SyncStatus struct {
+	// LastSuccess is the time of the last successful fetch; zero if none yet
+	// in this process.
+	LastSuccess time.Time
+	// ConsecutiveFailures counts fetch failures since the last success.
+	ConsecutiveFailures int
+	// LastError is the most recent fetch error; empty after a success.
+	LastError string
+}
+
+// SyncStatus returns a snapshot of the fetch outcome counters.
+func (g *GitStore) SyncStatus() SyncStatus {
+	g.syncMu.Lock()
+	defer g.syncMu.Unlock()
+	return g.sync
+}
+
+// syncOnce fetches and records the outcome. It reports whether the fetch succeeded.
+func (g *GitStore) syncOnce(phase string) bool {
+	err := g.fetch()
+	g.recordSync(err)
+	if err != nil {
+		slog.Error("git fetch failed", "phase", phase, "err", err)
+		return false
+	}
+	return true
+}
+
+func (g *GitStore) recordSync(err error) {
+	g.syncMu.Lock()
+	defer g.syncMu.Unlock()
+	if err != nil {
+		g.sync.ConsecutiveFailures++
+		g.sync.LastError = err.Error()
+		return
+	}
+	g.sync.LastSuccess = time.Now()
+	g.sync.ConsecutiveFailures = 0
+	g.sync.LastError = ""
+}
+
 func (g *GitStore) fetch() error {
 	repoDir := g.repoDir()
-	// --no-hooks prevents execution of post-fetch/post-checkout hooks, which
-	// could be planted by an attacker with write access to the cache directory.
+	// `-c core.hooksPath=/dev/null` prevents execution of hooks, which could be
+	// planted by an attacker with write access to the cache directory. It is a
+	// top-level git option: neither `fetch` nor `reset` accepts a --no-hooks flag.
 	// --depth=1 is a security invariant: shallow clones prevent an attacker from
 	// crafting malformed git objects in history that could exploit git parsing bugs.
 	// Do not remove --depth=1 without a security review.
-	if err := g.runGit(repoDir, "fetch", "--no-hooks", "--depth=1", "origin", g.ref); err != nil {
+	if err := g.runGit(repoDir, "-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "origin", g.ref); err != nil {
 		return err
 	}
-	if err := g.runGit(repoDir, "reset", "--no-hooks", "--hard", "origin/"+g.ref); err != nil {
+	if err := g.runGit(repoDir, "-c", "core.hooksPath=/dev/null", "reset", "--hard", "origin/"+g.ref); err != nil {
 		return err
 	}
 	// Validate that the remote URL in .git/config still matches the configured

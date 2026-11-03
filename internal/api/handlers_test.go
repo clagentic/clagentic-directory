@@ -400,3 +400,35 @@ func TestAgentCardNotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
+
+func TestFindRejectsOverLimitParams(t *testing.T) {
+	h := New(&fakeStore{agents: map[string]store.Agent{}}, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+	long := strings.Repeat("a", store.MaxFindQueryBytes+1)
+	manyTerms := strings.TrimSpace(strings.Repeat("ab ", store.MaxFindQueryTerms+1))
+	for _, param := range []string{"intent", "conversation_kind", "after_agent"} {
+		for name, val := range map[string]string{"bytes": long, "terms": manyTerms} {
+			req := httptest.NewRequest("GET", "/v1/find?"+param+"="+strings.ReplaceAll(val, " ", "+"), nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s/%s: status %d, want 400", param, name, rec.Code)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["param"] != param || body["unit"] != name {
+				t.Errorf("%s/%s: body %v", param, name, body)
+			}
+		}
+		atLimit := strings.Repeat("a", store.MaxFindQueryBytes)
+		req := httptest.NewRequest("GET", "/v1/find?"+param+"="+atLimit, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: at-limit status %d, want 200", param, rec.Code)
+		}
+	}
+}

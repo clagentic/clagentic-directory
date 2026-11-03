@@ -70,165 +70,412 @@ func newTestGitStore(t *testing.T, bare string, poll time.Duration) *GitStore {
 	return gs
 }
 
-func TestGitStoreFetchAdvancesClone(t *testing.T) {
+// gitRecorder puts a wrapper first on PATH that appends each git argv line to a
+// log and then runs the host git. Creating the file "failclone" in dir makes
+// `git clone` fail; creating "hang" makes every git call block.
+type gitRecorder struct{ dir string }
+
+func installGitRecorder(t *testing.T) gitRecorder {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + filepath.Join(dir, "log") + "\n" +
+		"[ -e " + filepath.Join(dir, "hang") + " ] && exec sleep 60\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ \"$a\" = clone ] && [ -e " + filepath.Join(dir, "failclone") + " ]; then echo boom >&2; exit 1; fi\n" +
+		"done\n" +
+		"exec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return gitRecorder{dir: dir}
+}
+
+func (r gitRecorder) set(t *testing.T, flag string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(r.dir, flag), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// count returns how many logged git calls used the subcommand.
+func (r gitRecorder) count(t *testing.T, sub string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(r.dir, "log"))
+	if os.IsNotExist(err) {
+		return 0
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		for _, f := range strings.Fields(line) {
+			if f == sub {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+func (r gitRecorder) reset(t *testing.T) {
+	t.Helper()
+	_ = os.Remove(filepath.Join(r.dir, "log"))
+}
+
+func newGitStoreCfg(t *testing.T, bare string) (GitStoreConfig, string) {
+	t.Helper()
+	cache := t.TempDir()
+	return GitStoreConfig{URL: "file://" + bare, Ref: "main", CacheDir: cache, Poll: time.Hour}, cache
+}
+
+func cacheEntries(t *testing.T, cache string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestGitStoreSyncAdvancesToOriginHead(t *testing.T) {
 	bare, work := newOrigin(t)
 	gs := newTestGitStore(t, bare, time.Hour)
 	if _, ok := gs.GetAgent("alpha"); !ok {
 		t.Fatal("alpha not loaded after clone")
 	}
+	oldDir := gs.curDir
 
 	advanceOrigin(t, work, "beta")
-	if err := gs.fetch(); err != nil {
-		t.Fatalf("fetch with host git: %v", err)
+	if !gs.syncOnce("test") {
+		t.Fatal("sync failed with host git")
 	}
 	want := runHostGit(t, work, "rev-parse", "HEAD")
-	got := runHostGit(t, gs.repoDir(), "rev-parse", "HEAD")
+	got := runHostGit(t, gs.curDir, "rev-parse", "HEAD")
 	if got != want {
-		t.Fatalf("clone HEAD %q != origin %q", got, want)
-	}
-	if err := gs.Reload(); err != nil {
-		t.Fatal(err)
+		t.Fatalf("served clone HEAD %q != origin %q", got, want)
 	}
 	if _, ok := gs.GetAgent("beta"); !ok {
-		t.Fatal("beta not served after fetch+reload")
+		t.Fatal("beta not served after sync")
+	}
+	if gs.curDir == oldDir {
+		t.Fatal("sync reused the previous directory")
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatalf("previous clone directory not removed: %v", err)
+	}
+	if n := len(cacheEntries(t, gs.cacheDir)); n != 1 {
+		t.Fatalf("cache dir holds %d entries, want only the served clone: %v", n, cacheEntries(t, gs.cacheDir))
 	}
 }
 
-func TestGitStoreFetchSuppressesHooks(t *testing.T) {
-	bare, work := newOrigin(t)
-	gs := newTestGitStore(t, bare, time.Hour)
-	marker := filepath.Join(t.TempDir(), "hook-ran")
-	hook := "#!/bin/sh\ntouch " + marker + "\n"
-	hooksDir := filepath.Join(gs.repoDir(), ".git", "hooks")
-	for _, name := range []string{"reference-transaction", "post-checkout", "post-merge"} {
-		if err := os.WriteFile(filepath.Join(hooksDir, name), []byte(hook), 0700); err != nil {
+func TestGitStoreUnchangedOriginMakesNoClone(t *testing.T) {
+	bare, _ := newOrigin(t)
+	cfg, cache := newGitStoreCfg(t, bare)
+	rec := installGitRecorder(t)
+	gs, err := NewGitStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gs.Close() })
+	before := cacheEntries(t, cache)
+	rec.reset(t)
+
+	for i := 0; i < 3; i++ {
+		if !gs.syncOnce("test") {
+			t.Fatal("sync failed")
+		}
+	}
+	if n := rec.count(t, "clone"); n != 0 {
+		t.Fatalf("unchanged origin triggered %d clones", n)
+	}
+	if n := rec.count(t, "ls-remote"); n != 3 {
+		t.Fatalf("ls-remote calls = %d, want 3", n)
+	}
+	if after := cacheEntries(t, cache); strings.Join(after, ",") != strings.Join(before, ",") {
+		t.Fatalf("cache dir changed with no new commit: %v -> %v", before, after)
+	}
+}
+
+// plantAttack writes every known config-execution vector into a git directory,
+// as an attacker with cache-dir write access would, including a commondir that
+// redirects config reads. It returns the marker files the commands would create.
+func plantAttack(t *testing.T, repo, bare string) []string {
+	t.Helper()
+	markers := t.TempDir()
+	var paths []string
+	script := func(name string) string {
+		s := filepath.Join(markers, name+".sh")
+		m := filepath.Join(markers, name+"-ran")
+		if err := os.WriteFile(s, []byte("#!/bin/sh\ntouch "+m+"\ncat\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, m)
+		return s
+	}
+	cfg := "[url \"ext::sh -c 'touch " + script("ext") + "'\"]\n\tinsteadOf = file://" + bare + "\n" +
+		"[protocol]\n\tallow = always\n" +
+		"[core]\n\tfsmonitor = " + script("fsm") + "\n\tgitProxy = " + script("proxy") + "\n\tsshCommand = " + script("ssh") + "\n" +
+		"\thooksPath = " + filepath.Join(repo, ".git", "hooks") + "\n" +
+		"[filter \"x\"]\n\tsmudge = " + script("smudge") + "\n\tprocess = " + script("process") + "\n" +
+		"[credential]\n\thelper = !" + script("cred") + "\n" +
+		"[remote \"origin\"]\n\tuploadpack = " + script("up") + "\n"
+
+	gitDir := filepath.Join(repo, ".git")
+	common := t.TempDir()
+	for _, d := range []string{gitDir, common} {
+		if err := os.MkdirAll(filepath.Join(d, "info"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "info", "attributes"), []byte("*.yaml filter=x\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	advanceOrigin(t, work, "beta")
-	if err := gs.fetch(); err != nil {
+	if err := os.WriteFile(filepath.Join(common, "config"), []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("a repo hook ran during fetch/reset")
-	}
-}
-
-func TestGitStoreFetchNeutralizesPlantedConfigCommands(t *testing.T) {
-	bare, work := newOrigin(t)
-	gs := newTestGitStore(t, bare, time.Hour)
-	markers := t.TempDir()
-	fsm := filepath.Join(markers, "fsmonitor-ran")
-	up := filepath.Join(markers, "uploadpack-ran")
-	fsmScript := filepath.Join(markers, "fsm.sh")
-	upScript := filepath.Join(markers, "up.sh")
-	if err := os.WriteFile(fsmScript, []byte("#!/bin/sh\ntouch "+fsm+"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(upScript, []byte("#!/bin/sh\ntouch "+up+"\nexec git-upload-pack \"$@\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	runHostGit(t, gs.repoDir(), "config", "core.fsmonitor", fsmScript)
-	runHostGit(t, gs.repoDir(), "config", "remote.origin.uploadpack", upScript)
-
-	advanceOrigin(t, work, "beta")
-	if err := gs.fetch(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(fsm); err == nil {
-		t.Fatal("planted core.fsmonitor command ran during fetch/reset")
-	}
-	if _, err := os.Stat(up); err == nil {
-		t.Fatal("planted remote.origin.uploadpack command ran during fetch")
-	}
-}
-
-// appendRepoConfig appends raw text to the cache clone's .git/config, as an
-// attacker with cache-dir write access would.
-func appendRepoConfig(t *testing.T, gs *GitStore, text string) {
-	t.Helper()
-	f, err := os.OpenFile(filepath.Join(gs.repoDir(), ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	f, err := os.OpenFile(filepath.Join(gitDir, "config"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	if _, err := f.WriteString(text); err != nil {
+	if _, err := f.WriteString(cfg); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func markerScript(t *testing.T, dir, name string) (script, marker string) {
-	t.Helper()
-	marker = filepath.Join(dir, name+"-ran")
-	script = filepath.Join(dir, name+".sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\ncat\n"), 0700); err != nil {
+	_ = f.Close()
+	if err := os.WriteFile(filepath.Join(gitDir, "commondir"), []byte(common+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	return script, marker
-}
-
-func TestGitStoreIgnoresPlantedRepoConfig(t *testing.T) {
-	bare, work := newOrigin(t)
-	gs := newTestGitStore(t, bare, time.Hour)
-	dir := t.TempDir()
-
-	_, extMarker := markerScript(t, dir, "ext")
-	fsmScript, fsmMarker := markerScript(t, dir, "fsm")
-	smudge, smudgeMarker := markerScript(t, dir, "smudge")
-	cred, credMarker := markerScript(t, dir, "cred")
-	proxy, proxyMarker := markerScript(t, dir, "proxy")
-
-	appendRepoConfig(t, gs, "[url \"ext::sh -c 'touch "+extMarker+"'\"]\n\tinsteadOf = file://"+bare+"\n"+
-		"[protocol \"ext\"]\n\tallow = always\n"+
-		"[protocol]\n\tallow = always\n"+
-		"[core]\n\tfsmonitor = "+fsmScript+"\n\tgitProxy = "+proxy+"\n\tsshCommand = "+proxy+"\n"+
-		"[filter \"x\"]\n\tsmudge = "+smudge+"\n\trequired = false\n"+
-		"[credential]\n\thelper = !"+cred+"\n")
-	attrs := filepath.Join(gs.repoDir(), ".git", "info", "attributes")
-	if err := os.MkdirAll(filepath.Dir(attrs), 0700); err != nil {
+	hooks := filepath.Join(gitDir, "hooks")
+	if err := os.MkdirAll(hooks, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(attrs, []byte("*.yaml filter=x\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	advanceOrigin(t, work, "beta")
-	if err := gs.fetch(); err != nil {
-		t.Fatalf("sync with planted config: %v", err)
-	}
-	for name, m := range map[string]string{"ext:: transport": extMarker, "core.fsmonitor": fsmMarker,
-		"filter smudge": smudgeMarker, "credential.helper": credMarker, "core.gitProxy/sshCommand": proxyMarker} {
-		if _, err := os.Stat(m); err == nil {
-			t.Fatalf("planted %s command ran", name)
+	hookMarker := filepath.Join(markers, "hook-ran")
+	paths = append(paths, hookMarker)
+	for _, h := range []string{"reference-transaction", "post-checkout", "post-merge", "pre-auto-gc"} {
+		if err := os.WriteFile(filepath.Join(hooks, h), []byte("#!/bin/sh\ntouch "+hookMarker+"\n"), 0700); err != nil {
+			t.Fatal(err)
 		}
 	}
-	want := runHostGit(t, work, "rev-parse", "HEAD")
-	if got := runHostGit(t, gs.repoDir(), "rev-parse", "HEAD"); got != want {
-		t.Fatalf("clone did not advance: HEAD %q != origin %q", got, want)
-	}
-	cfg, err := os.ReadFile(filepath.Join(gs.repoDir(), ".git", "config"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantCfg, _ := canonicalGitConfig(gs.url, gs.ref)
-	if string(cfg) != wantCfg {
-		t.Fatalf(".git/config not canonical after sync:\n%s", cfg)
+	return paths
+}
+
+func assertNoMarkers(t *testing.T, markers []string) {
+	t.Helper()
+	for _, m := range markers {
+		if _, err := os.Stat(m); err == nil {
+			t.Fatalf("planted command ran: %s", filepath.Base(m))
+		}
 	}
 }
 
-func TestGitStoreRejectsNonPlainGitDir(t *testing.T) {
-	bare, _ := newOrigin(t)
+func TestGitStoreIgnoresPlantedServedDirectory(t *testing.T) {
+	bare, work := newOrigin(t)
 	gs := newTestGitStore(t, bare, time.Hour)
-	gitDir := filepath.Join(gs.repoDir(), ".git")
-	moved := gitDir + ".real"
-	if err := os.Rename(gitDir, moved); err != nil {
+	markers := plantAttack(t, gs.curDir, bare)
+
+	advanceOrigin(t, work, "beta")
+	if !gs.syncOnce("test") {
+		t.Fatal("sync failed with planted directory present")
+	}
+	assertNoMarkers(t, markers)
+	want := runHostGit(t, work, "rev-parse", "HEAD")
+	if got := runHostGit(t, gs.curDir, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("clone did not advance: HEAD %q != origin %q", got, want)
+	}
+}
+
+func TestGitStoreStartupIgnoresPlantedDirectories(t *testing.T) {
+	bare, _ := newOrigin(t)
+	cfg, cache := newGitStoreCfg(t, bare)
+
+	// A leftover per-sync directory and the legacy persistent clone named
+	// after the URL, both with planted config.
+	stale := filepath.Join(cache, "clone-leftover")
+	runHostGit(t, cache, "clone", "--quiet", cfg.URL, stale)
+	legacy := filepath.Join(cache, "origin")
+	runHostGit(t, cache, "clone", "--quiet", cfg.URL, legacy)
+	markers := append(plantAttack(t, stale, bare), plantAttack(t, legacy, bare)...)
+
+	gs, err := NewGitStore(cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(moved, gitDir); err != nil {
+	t.Cleanup(func() { _ = gs.Close() })
+	assertNoMarkers(t, markers)
+	if _, ok := gs.GetAgent("alpha"); !ok {
+		t.Fatal("registry not loaded at startup")
+	}
+	for _, p := range []string{stale, legacy} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("stale directory %s not removed", filepath.Base(p))
+		}
+	}
+	if gs.curDir == stale || gs.curDir == legacy {
+		t.Fatal("startup served a pre-existing directory")
+	}
+}
+
+func TestGitStoreStartupSyncAdvancesStaleCache(t *testing.T) {
+	bare, work := newOrigin(t)
+	cfg, _ := newGitStoreCfg(t, bare)
+	first, err := NewGitStore(cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := gs.fetch(); err == nil {
-		t.Fatal("fetch accepted a symlinked .git")
+	_ = first.Close()
+
+	advanceOrigin(t, work, "beta")
+	second, err := NewGitStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if _, ok := second.GetAgent("beta"); !ok {
+		t.Fatal("restart served a stale registry")
+	}
+	if st := second.SyncStatus(); st.LastSuccess.IsZero() || st.ConsecutiveFailures != 0 {
+		t.Fatalf("unexpected sync status after startup sync: %+v", st)
+	}
+}
+
+func TestGitStoreStartupFailsWithoutOrigin(t *testing.T) {
+	bare, _ := newOrigin(t)
+	cfg, _ := newGitStoreCfg(t, bare)
+	if err := os.Rename(bare, bare+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if gs, err := NewGitStore(cfg); err == nil {
+		_ = gs.Close()
+		t.Fatal("NewGitStore succeeded with no origin")
+	}
+}
+
+func TestGitStoreFailedCloneKeepsOldSnapshot(t *testing.T) {
+	bare, work := newOrigin(t)
+	rec := installGitRecorder(t)
+	gs := newTestGitStore(t, bare, time.Hour)
+	servedDir := gs.curDir
+
+	advanceOrigin(t, work, "beta")
+	rec.set(t, "failclone")
+	for i := 1; i <= 2; i++ {
+		if gs.syncOnce("test") {
+			t.Fatal("sync succeeded though clone fails")
+		}
+		if got := gs.SyncStatus().ConsecutiveFailures; got != i {
+			t.Fatalf("failures = %d, want %d", got, i)
+		}
+	}
+	if _, ok := gs.GetAgent("alpha"); !ok {
+		t.Fatal("old snapshot lost after failed clone")
+	}
+	if _, ok := gs.GetAgent("beta"); ok {
+		t.Fatal("new snapshot served despite failed clone")
+	}
+	if gs.curDir != servedDir {
+		t.Fatal("served directory changed on failure")
+	}
+	if got := cacheEntries(t, gs.cacheDir); len(got) != 1 {
+		t.Fatalf("failed clone left directories behind: %v", got)
+	}
+
+	if err := os.Remove(filepath.Join(rec.dir, "failclone")); err != nil {
+		t.Fatal(err)
+	}
+	if !gs.syncOnce("test") {
+		t.Fatal("sync did not recover")
+	}
+	if st := gs.SyncStatus(); st.ConsecutiveFailures != 0 || st.LastError != "" {
+		t.Fatalf("status not reset: %+v", st)
+	}
+	if _, ok := gs.GetAgent("beta"); !ok {
+		t.Fatal("beta not served after recovery")
+	}
+}
+
+func TestGitStoreInvalidRegistryKeepsOldSnapshot(t *testing.T) {
+	bare, work := newOrigin(t)
+	gs := newTestGitStore(t, bare, time.Hour)
+	servedDir := gs.curDir
+
+	if err := os.WriteFile(filepath.Join(work, "bad.yaml"), []byte("schema_version: 2\nidentity: [\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, work, "add", "bad.yaml")
+	runHostGit(t, work, "commit", "-m", "bad")
+	runHostGit(t, work, "push", "origin", "main")
+
+	if gs.syncOnce("test") {
+		t.Fatal("sync accepted an invalid registry")
+	}
+	if gs.curDir != servedDir {
+		t.Fatal("served directory changed on invalid registry")
+	}
+	if got := cacheEntries(t, gs.cacheDir); len(got) != 1 {
+		t.Fatalf("invalid clone left directories behind: %v", got)
+	}
+}
+
+func TestGitStoreVocabPathFollowsNewDirectory(t *testing.T) {
+	bare, work := newOrigin(t)
+	// Agents move under a subpath so the vocabulary file is not read as an agent.
+	if err := os.MkdirAll(filepath.Join(work, "agents"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, work, "mv", "alpha.yaml", "agents/alpha.yaml")
+	vocab := "schema_version: 1\nintents:\n  do-thing: x\nformats:\n  text: x\n"
+	if err := os.WriteFile(filepath.Join(work, "vocabulary.v1.yaml"), []byte(vocab), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, work, "add", "vocabulary.v1.yaml")
+	runHostGit(t, work, "commit", "-m", "layout")
+	runHostGit(t, work, "push", "origin", "main")
+
+	cfg, _ := newGitStoreCfg(t, bare)
+	cfg.Subpath = "agents"
+	cfg.VocabularyPath = "vocabulary.v1.yaml"
+	gs, err := NewGitStore(cfg)
+	if err != nil {
+		t.Fatalf("NewGitStore with vocabulary: %v", err)
+	}
+	t.Cleanup(func() { _ = gs.Close() })
+	first := gs.curDir
+
+	// The new commit's vocabulary drops the intent: the sync must read the new
+	// directory's vocabulary and reject the registry, keeping the old snapshot.
+	bad := "schema_version: 1\nintents:\n  other: x\nformats:\n  text: x\n"
+	if err := os.WriteFile(filepath.Join(work, "vocabulary.v1.yaml"), []byte(bad), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, work, "commit", "-am", "narrow vocab")
+	runHostGit(t, work, "push", "origin", "main")
+	if gs.syncOnce("test") {
+		t.Fatal("sync accepted a registry that violates the new directory's vocabulary")
+	}
+	if gs.curDir != first {
+		t.Fatal("served directory changed on vocabulary conflict")
+	}
+
+	if err := os.WriteFile(filepath.Join(work, "vocabulary.v1.yaml"), []byte(vocab), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, work, "commit", "-am", "restore vocab")
+	runHostGit(t, work, "push", "origin", "main")
+	if !gs.syncOnce("test") {
+		t.Fatalf("sync with vocabulary failed: %+v", gs.SyncStatus())
+	}
+	if gs.curDir == first {
+		t.Fatal("vocabulary sync did not move to a new directory")
 	}
 }
 
@@ -246,34 +493,10 @@ func TestGitURLSchemeAllowlist(t *testing.T) {
 			t.Errorf("gitURLScheme(%q) = %q, %v; want %q", url, got, err, want)
 		}
 	}
-	for _, url := range []string{"ext::sh -c id", "git://example.invalid/r", "ftp://example.invalid/r"} {
+	for _, url := range []string{"ext::sh -c id", "git://example.invalid/r", "ftp://example.invalid/r", "--upload-pack=x@y:z"} {
 		if _, err := gitURLScheme(url); err == nil {
 			t.Errorf("gitURLScheme(%q) accepted", url)
 		}
-	}
-}
-
-func TestGitStoreStartupSyncAdvancesStaleCache(t *testing.T) {
-	bare, work := newOrigin(t)
-	cache := t.TempDir()
-	cfg := GitStoreConfig{URL: "file://" + bare, Ref: "main", CacheDir: cache, Poll: time.Hour}
-	first, err := NewGitStore(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = first.Close()
-
-	advanceOrigin(t, work, "beta")
-	second, err := NewGitStore(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = second.Close() })
-	if _, ok := second.GetAgent("beta"); !ok {
-		t.Fatal("restart served stale cache: startup sync did not run")
-	}
-	if st := second.SyncStatus(); st.LastSuccess.IsZero() || st.ConsecutiveFailures != 0 {
-		t.Fatalf("unexpected sync status after startup sync: %+v", st)
 	}
 }
 
@@ -291,7 +514,7 @@ func TestGitStorePollLoopAdvances(t *testing.T) {
 	t.Fatal("poll loop did not advance the registry")
 }
 
-func TestGitStoreFailedFetchRecordedThenRecovers(t *testing.T) {
+func TestGitStoreFailedSyncRecordedThenRecovers(t *testing.T) {
 	bare, work := newOrigin(t)
 	gs := newTestGitStore(t, bare, time.Hour)
 
@@ -301,7 +524,7 @@ func TestGitStoreFailedFetchRecordedThenRecovers(t *testing.T) {
 	}
 	for i := 1; i <= 3; i++ {
 		if gs.syncOnce("test") {
-			t.Fatal("fetch unexpectedly succeeded against missing origin")
+			t.Fatal("sync unexpectedly succeeded against missing origin")
 		}
 		if got := gs.SyncStatus().ConsecutiveFailures; got != i {
 			t.Fatalf("failures = %d, want %d", got, i)
@@ -316,7 +539,7 @@ func TestGitStoreFailedFetchRecordedThenRecovers(t *testing.T) {
 	}
 	advanceOrigin(t, work, "beta")
 	if !gs.syncOnce("test") {
-		t.Fatal("fetch did not recover")
+		t.Fatal("sync did not recover")
 	}
 	if st := gs.SyncStatus(); st.ConsecutiveFailures != 0 || st.LastError != "" {
 		t.Fatalf("status not reset: %+v", st)
@@ -339,20 +562,9 @@ func TestGitStorePollLoopRecordsFailures(t *testing.T) {
 	t.Fatal("poll loop failures were not recorded in SyncStatus")
 }
 
-// hangingGitOnPath puts a fake git first on PATH that blocks, standing in for a
-// stalled network or blocked ssh. Call after the origin and clone are set up.
-func hangingGitOnPath(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\nexec sleep 60\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func TestGitStoreHangingFetchTimesOutAndCountsFailure(t *testing.T) {
+func TestGitStoreHangingGitTimesOutAndCountsFailure(t *testing.T) {
 	bare, _ := newOrigin(t)
+	rec := installGitRecorder(t)
 	gs, err := NewGitStore(GitStoreConfig{
 		URL: "file://" + bare, Ref: "main", CacheDir: t.TempDir(),
 		Poll: time.Hour, GitTimeout: 300 * time.Millisecond,
@@ -361,14 +573,14 @@ func TestGitStoreHangingFetchTimesOutAndCountsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = gs.Close() })
-	hangingGitOnPath(t)
+	rec.set(t, "hang")
 
 	start := time.Now()
 	if gs.syncOnce("test") {
-		t.Fatal("hanging fetch reported success")
+		t.Fatal("hanging git reported success")
 	}
 	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("fetch not bounded: took %s", d)
+		t.Fatalf("sync not bounded: took %s", d)
 	}
 	st := gs.SyncStatus()
 	if st.ConsecutiveFailures != 1 || !strings.Contains(st.LastError, "timed out") {
@@ -378,6 +590,7 @@ func TestGitStoreHangingFetchTimesOutAndCountsFailure(t *testing.T) {
 
 func TestGitStoreCloseCancelsInFlightGit(t *testing.T) {
 	bare, _ := newOrigin(t)
+	rec := installGitRecorder(t)
 	gs, err := NewGitStore(GitStoreConfig{
 		URL: "file://" + bare, Ref: "main", CacheDir: t.TempDir(),
 		Poll: 20 * time.Millisecond, GitTimeout: time.Hour,
@@ -385,8 +598,8 @@ func TestGitStoreCloseCancelsInFlightGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hangingGitOnPath(t)
-	time.Sleep(200 * time.Millisecond) // let the poll loop enter the hung fetch
+	rec.set(t, "hang")
+	time.Sleep(200 * time.Millisecond) // let the poll loop enter the hung git call
 
 	closed := make(chan struct{})
 	go func() { _ = gs.Close(); close(closed) }()

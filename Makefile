@@ -37,9 +37,10 @@ endif
 
 .PHONY: build test test-json test-scripts vet fmt check
 
-#: the stamped revision is the only provenance, so this build
-# and `update`'s export build (which has no .git) produce identical bytes at
-# one commit instead of differing in Go's embedded vcs.* build info.
+# -trimpath drops the build directory from the binary and -buildvcs=false
+# omits Go's embedded vcs.* build info, so the stamped revision is the only
+# provenance. This build and `update`'s export build (which has no .git)
+# then produce identical bytes at one commit.
 build:
 	go build -C $(ROOT) -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o clagentic-directory ./cmd/clagentic-directory
 

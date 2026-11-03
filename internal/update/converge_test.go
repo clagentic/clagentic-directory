@@ -308,6 +308,22 @@ func TestUnitWriteFailureStopsBeforeReload(t *testing.T) {
 	}
 }
 
+func TestRecordWriteFailureStillRestartsAndFailsLoudly(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	seedConverged(r, v)
+	r.bd.content = "binary-v2"
+	r.sc.commit = newerCommit
+	r.fs.failWrite = v.Binary.InstallPath + recordSuffix
+	res, err := Converge(r.d, v)
+	if code(err) != ExitApply || !strings.Contains(err.Error(), "install record") {
+		t.Fatalf("want loud ExitApply on record write, got %v", err)
+	}
+	if !res.BinaryChanged || !res.Restarted {
+		t.Fatalf("binary swapped but restart lost: %+v", res)
+	}
+}
+
 func TestReadyzFailureExitsWithJournalHint(t *testing.T) {
 	v := testValues(t)
 	r := newRig()

@@ -27,11 +27,14 @@ In order:
    temp file and rename, then run `systemctl daemon-reload`.
 4. If a build ran and its SHA-256 differs from the installed binary's, rename
    the staged file over `binary.install_path` (atomic; safe while the daemon
-   runs), then write the install record (see Binary currency).
+   runs).
 5. For each unit in `supersedes`: stop it if active, disable it if enabled.
 6. Enable the unit if it is not enabled.
 7. Restart the unit if the unit file or binary changed, or if it is not
    running (a restart starts it).
+   After the restart, if a build ran, write the install record (see Binary
+   currency). A failed record write fails the run, after the restart has
+   already happened.
 8. Poll `/readyz` until HTTP 200 or `readyz.timeout`.
 
 The service restarts only on change: a new unit file, a new binary, or a unit

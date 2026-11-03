@@ -27,10 +27,17 @@ var buildRevision string
 // revision reports the build's source commit, or "embedded-vcs-or-unknown"
 // when neither the stamp nor buildinfo carries one.
 func revision() string {
-	if buildRevision != "" {
-		return buildRevision
+	bi, ok := debug.ReadBuildInfo()
+	return revisionFrom(buildRevision, bi, ok)
+}
+
+// revisionFrom is revision() with its inputs explicit so the buildinfo
+// fallback can be tested without a VCS-stamped test binary.
+func revisionFrom(stamp string, bi *debug.BuildInfo, ok bool) string {
+	if stamp != "" {
+		return stamp
 	}
-	if bi, ok := debug.ReadBuildInfo(); ok {
+	if ok && bi != nil {
 		for _, s := range bi.Settings {
 			if s.Key == "vcs.revision" && s.Value != "" {
 				return s.Value

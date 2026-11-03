@@ -158,16 +158,6 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 		}
 		res.BinaryChanged = true
 	}
-	if res.Built {
-		want.SHA256 = digest(newBin)
-		if !binaryChanged {
-			want.SHA256 = digest(oldBin)
-		}
-		if werr := d.FS.WriteAtomic(recordPath, want.render(), 0o644); werr != nil {
-			return res, fail(ExitApply, "write install record %s: %v", recordPath, werr)
-		}
-	}
-
 	own := v.UnitName()
 	for _, u := range v.Supersedes {
 		if u == own {
@@ -216,6 +206,20 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 			return res, fail(ExitApply, "restart %s: %v", own, rerr)
 		}
 		res.Restarted = true
+	}
+
+	// The record is written only once the restart decision has been carried
+	// out. Writing it earlier would let a failed write leave the new binary on
+	// disk with the old one running: a rerun would see identical bytes and
+	// never restart. A failure here is returned loudly instead.
+	if res.Built {
+		want.SHA256 = digest(newBin)
+		if !binaryChanged {
+			want.SHA256 = digest(oldBin)
+		}
+		if werr := d.FS.WriteAtomic(recordPath, want.render(), 0o644); werr != nil {
+			return res, fail(ExitApply, "write install record %s: %v", recordPath, werr)
+		}
 	}
 
 	if perr := waitReady(d, v, token); perr != nil {

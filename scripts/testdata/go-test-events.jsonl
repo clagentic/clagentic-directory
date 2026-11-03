@@ -1,0 +1,48 @@
+{"ImportPath":"cap/a [cap/a.test]","Action":"build-output","Output":"# cap/a [cap/a.test]\n"}
+{"ImportPath":"cap/a [cap/a.test]","Action":"build-output","Output":"a/a.go:2:23: undefined: undefinedX\n"}
+{"ImportPath":"cap/a [cap/a.test]","Action":"build-fail"}
+{"Action":"start","Package":"cap/a"}
+{"Action":"output","Package":"cap/a","Output":"FAIL\tcap/a [build failed]\n"}
+{"Action":"fail","Package":"cap/a","Elapsed":0,"FailedBuild":"cap/a [cap/a.test]"}
+{"Action":"start","Package":"cap/b"}
+{"Action":"run","Package":"cap/b","Test":"TestB"}
+{"Action":"output","Package":"cap/b","Test":"TestB","Output":"=== RUN   TestB\n"}
+{"Action":"run","Package":"cap/b","Test":"TestB/sub"}
+{"Action":"output","Package":"cap/b","Test":"TestB/sub","Output":"=== RUN   TestB/sub\n"}
+{"Action":"output","Package":"cap/b","Test":"TestB/sub","Output":"    b_test.go:3: boom\n"}
+{"Action":"output","Package":"cap/b","Test":"TestB/sub","Output":"--- FAIL: TestB/sub (0.00s)\n"}
+{"Action":"fail","Package":"cap/b","Test":"TestB/sub","Elapsed":0}
+{"Action":"output","Package":"cap/b","Test":"TestB","Output":"--- FAIL: TestB (0.00s)\n"}
+{"Action":"fail","Package":"cap/b","Test":"TestB","Elapsed":0}
+{"Action":"run","Package":"cap/b","Test":"TestS"}
+{"Action":"output","Package":"cap/b","Test":"TestS","Output":"=== RUN   TestS\n"}
+{"Action":"output","Package":"cap/b","Test":"TestS","Output":"    b_test.go:4: s\n"}
+{"Action":"output","Package":"cap/b","Test":"TestS","Output":"--- SKIP: TestS (0.00s)\n"}
+{"Action":"skip","Package":"cap/b","Test":"TestS","Elapsed":0}
+{"Action":"run","Package":"cap/b","Test":"TestP"}
+{"Action":"output","Package":"cap/b","Test":"TestP","Output":"=== RUN   TestP\n"}
+{"Action":"output","Package":"cap/b","Test":"TestP","Output":"--- PASS: TestP (0.00s)\n"}
+{"Action":"pass","Package":"cap/b","Test":"TestP","Elapsed":0}
+{"Action":"output","Package":"cap/b","Output":"FAIL\n"}
+{"Action":"output","Package":"cap/b","Output":"FAIL\tcap/b\t0.010s\n"}
+{"Action":"fail","Package":"cap/b","Elapsed":0.012}
+{"Action":"start","Package":"cap/c"}
+{"Action":"start","Package":"cap/d"}
+{"Action":"run","Package":"cap/c","Test":"TestC"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"=== RUN   TestC\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"--- FAIL: TestC (0.00s)\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"panic: x [recovered, repanicked]\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"goroutine 19 [running]:\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"testing.tRunner.func1.2({0x54c2a0, 0x5b91b0})\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"testing.tRunner.func1()\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"panic({0x54c2a0?, 0x5b91b0?})\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"cap/c.TestC(0xc000102540?)\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"testing.tRunner(0xc000102540, 0x58be58)\n"}
+{"Action":"output","Package":"cap/c","Test":"TestC","Output":"created by testing.(*T).Run in goroutine 1\n"}
+{"Action":"fail","Package":"cap/c","Test":"TestC","Elapsed":0}
+{"Action":"output","Package":"cap/c","Output":"FAIL\tcap/c\t0.011s\n"}
+{"Action":"fail","Package":"cap/c","Elapsed":0.012}
+{"Action":"output","Package":"cap/d","Output":"exit status 3\n"}
+{"Action":"output","Package":"cap/d","Output":"FAIL\tcap/d\t0.013s\n"}
+{"Action":"fail","Package":"cap/d","Elapsed":0.013}

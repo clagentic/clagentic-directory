@@ -101,7 +101,7 @@ func TestGoBuilderArgs(t *testing.T) {
 	if err := b.Build("/src", "./cmd/x", "/out/bin.update-new", "abc123"); err != nil {
 		t.Fatal(err)
 	}
-	if got != "go build -C /src -trimpath -ldflags -X main.buildRevision=abc123 -o /out/bin.update-new -- ./cmd/x" {
+	if got != "go build -C /src -trimpath -buildvcs=false -ldflags -X main.buildRevision=abc123 -o /out/bin.update-new -- ./cmd/x" {
 		t.Fatalf("got %s", got)
 	}
 	b.Run = func(string, ...string) (string, error) { return "syntax error", errors.New("exit 1") }

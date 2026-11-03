@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/clagentic/clagentic-directory/internal/store"
 )
@@ -174,12 +175,30 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// StaleFetchThreshold is the number of consecutive failed registry fetches
+// after which /readyz reports 503 "registry stale".
+const StaleFetchThreshold = 3
+
 func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 	if len(h.store.ListAgents()) == 0 {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "no agents loaded"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "no agents loaded"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	body := map[string]any{"status": "ok"}
+	code := http.StatusOK
+	if sr, ok := h.store.(store.SyncReporter); ok {
+		st := sr.SyncStatus()
+		sync := map[string]any{"consecutive_failures": st.ConsecutiveFailures}
+		if !st.LastSuccess.IsZero() {
+			sync["last_success"] = st.LastSuccess.UTC().Format(time.RFC3339)
+		}
+		body["sync"] = sync
+		if st.ConsecutiveFailures >= StaleFetchThreshold {
+			body["status"] = "registry stale"
+			code = http.StatusServiceUnavailable
+		}
+	}
+	writeJSON(w, code, body)
 }
 
 func (h *Handler) agentCard(w http.ResponseWriter, r *http.Request) {

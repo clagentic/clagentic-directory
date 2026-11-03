@@ -1,19 +1,33 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 )
 
+// DefaultGitTimeout bounds each git subprocess (ls-remote, clone, rev-parse)
+// when GitStoreConfig.GitTimeout is zero. A hung git call would otherwise never
+// record a failure and /readyz would stay 200 on a stale registry.
+const DefaultGitTimeout = 2 * time.Minute
+
 // GitStore implements Store by cloning a git repo and polling for changes.
-// When a VocabularyPath is configured, the vocabulary file is re-read on every
-// poll cycle and validated atomically with the agent entries (snapshot pattern).
+//
+// The daemon never runs git inside a directory that existed before it created
+// it. Each sync reads the origin SHA with `git ls-remote` (outside any repo);
+// only when the SHA changed does it shallow-clone into a fresh directory it
+// creates under the cache dir, validate the registry from that directory, swap
+// the served snapshot, and delete the previous directory. Anything an attacker
+// with cache-dir write access plants in an old directory therefore has nothing
+// to execute it.
+//
+// When a VocabularyPath is configured, the vocabulary file is loaded from the
+// same new directory and validated atomically with the agent entries.
 type GitStore struct {
 	url      string
 	ref      string
@@ -21,26 +35,40 @@ type GitStore struct {
 	subpath  string
 	keyFile  string
 	poll     time.Duration
+	// gitTimeout bounds every git subprocess; see DefaultGitTimeout.
+	gitTimeout time.Duration
+	// ctx is cancelled by Close so an in-flight git call does not block shutdown.
+	ctx    context.Context
+	cancel context.CancelFunc
 	// vocabPath is the path within the cloned repo to the vocabulary file.
 	// Empty means ValidateOpen.
 	vocabPath string
-	mode      ValidationMode
+	ext       VocabularyExtensions
 
-	reloadMu sync.Mutex   // serializes reload candidate building
-	mu       sync.RWMutex // protects snap; held only for swap and reads
-	snap     snapshot
+	syncRunMu sync.Mutex   // serializes whole sync runs
+	mu        sync.RWMutex // protects snap, curDir, curSHA; held only for swap and reads
+	snap      snapshot
+	curDir    string // directory the served snapshot was loaded from
+	curSHA    string // commit the served snapshot was loaded from
 
-	done chan struct{}
+	syncMu sync.Mutex // protects sync
+	sync   SyncStatus
+
+	done     chan struct{}
+	loopDone chan struct{} // closed when pollLoop has exited
 }
 
 // GitStoreConfig holds configuration for a GitStore.
 type GitStoreConfig struct {
 	URL      string
 	Ref      string        // default: main
-	CacheDir string        // where to clone
+	CacheDir string        // parent of the per-sync clone directories
 	Subpath  string        // subdirectory within repo for registry files
 	KeyFile  string        // SSH deploy key or HTTPS token file (optional)
 	Poll     time.Duration // default: 60s
+	// GitTimeout bounds each git subprocess; default DefaultGitTimeout. A
+	// timeout counts as a failed sync.
+	GitTimeout time.Duration
 	// VocabularyPath is the path within the cloned repo to a vocabulary.v1.yaml
 	// file. When set, schema_version: 2 entries are validated against it.
 	// When empty, vocabulary checking is skipped (ValidateOpen).
@@ -51,7 +79,10 @@ type GitStoreConfig struct {
 	Ext VocabularyExtensions
 }
 
-// NewGitStore clones the repo and starts the poll loop.
+// NewGitStore clones the repo into a fresh directory and starts the poll loop.
+// Startup never loads an existing directory under the cache dir, so unlike a
+// persistent-clone design a failed first sync is fatal: there is no trusted
+// stale copy to fall back on.
 func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 	if cfg.Ref == "" {
 		cfg.Ref = "main"
@@ -59,53 +90,42 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 	if cfg.Poll == 0 {
 		cfg.Poll = 60 * time.Second
 	}
-	gs := &GitStore{
-		url:       cfg.URL,
-		ref:       cfg.Ref,
-		cacheDir:  cfg.CacheDir,
-		subpath:   cfg.Subpath,
-		keyFile:   cfg.KeyFile,
-		poll:      cfg.Poll,
-		vocabPath: cfg.VocabularyPath,
-		done:      make(chan struct{}),
+	if cfg.GitTimeout == 0 {
+		cfg.GitTimeout = DefaultGitTimeout
 	}
-
-	repoDir := gs.repoDir()
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
-			return nil, fmt.Errorf("creating cache dir: %w", err)
-		}
-		if err := gs.runGit("", "clone", "--depth=1", "--branch", cfg.Ref, cfg.URL, repoDir); err != nil {
-			return nil, fmt.Errorf("git clone: %w", err)
-		}
-	}
-
-	vocab, mode, err := gs.loadVocab(cfg.Ext)
+	cacheDir, err := filepath.Abs(cfg.CacheDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolving cache dir: %w", err)
 	}
-	gs.mode = mode
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating cache dir: %w", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	gs := &GitStore{
+		gitTimeout: cfg.GitTimeout,
+		ctx:        ctx,
+		cancel:     cancel,
+		url:        cfg.URL,
+		ref:        cfg.Ref,
+		cacheDir:   cacheDir,
+		subpath:    cfg.Subpath,
+		keyFile:    cfg.KeyFile,
+		poll:       cfg.Poll,
+		vocabPath:  cfg.VocabularyPath,
+		ext:        cfg.Ext,
+		done:       make(chan struct{}),
+		loopDone:   make(chan struct{}),
+	}
 
-	if err := gs.reload(vocab); err != nil {
-		return nil, err
+	gs.removeStaleDirs()
+	if err := gs.syncNow(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("initial git sync: %w", err)
 	}
+	gs.recordSync(nil)
 
 	go gs.pollLoop()
 	return gs, nil
-}
-
-// loadVocab resolves the vocabulary for the current checkout.
-// It reads the vocabulary file from the repo working tree (if configured)
-// and applies any deprecated VocabularyExtensions shim.
-func (g *GitStore) loadVocab(ext VocabularyExtensions) (*vocabulary, ValidationMode, error) {
-	if g.vocabPath == "" {
-		return resolveVocabulary("", ext)
-	}
-	absPath, err := resolveGitVocabPath(g.repoDir(), g.vocabPath)
-	if err != nil {
-		return nil, ValidateOpen, err
-	}
-	return resolveVocabulary(absPath, ext)
 }
 
 // resolveGitVocabPath joins repoDir and relPath and checks for path traversal.
@@ -124,43 +144,50 @@ func resolveGitVocabPath(repoDir, relPath string) (string, error) {
 	return filepath.Join(repoDir, cleaned), nil
 }
 
-func (g *GitStore) repoDir() string {
-	// derive stable dir name from URL
-	name := filepath.Base(strings.TrimSuffix(g.url, ".git"))
-	return filepath.Join(g.cacheDir, name)
-}
-
-func (g *GitStore) registryDir() string {
-	if g.subpath != "" {
-		return filepath.Join(g.repoDir(), g.subpath)
-	}
-	return g.repoDir()
-}
-
-func (g *GitStore) runGit(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	if g.keyFile != "" && strings.HasPrefix(g.url, "git@") {
-		// Use a whitelisted env rather than inheriting os.Environ() to prevent
-		// GIT_SSH_COMMAND or GIT_ASKPASS overrides from the parent process environment.
-		// StrictHostKeyChecking=accept-new accepts new hosts on first connect but
-		// rejects unexpected key changes, preventing silent MITM.
-		cmd.Env = []string{
-			"PATH=" + os.Getenv("PATH"),
-			"HOME=" + os.Getenv("HOME"),
-			"GIT_SSH_COMMAND=ssh -i " + g.keyFile + " -o StrictHostKeyChecking=accept-new -o BatchMode=yes",
+// buildSnapshot loads and validates the vocabulary and registry from dir, a
+// directory the daemon just cloned into. It touches nothing served.
+func (g *GitStore) buildSnapshot(dir string) (snapshot, error) {
+	var vocab *vocabulary
+	if g.vocabPath == "" {
+		v, _, err := resolveVocabulary("", g.ext)
+		if err != nil {
+			return snapshot{}, err
 		}
+		vocab = v
+	} else {
+		absPath, err := resolveGitVocabPath(dir, g.vocabPath)
+		if err != nil {
+			return snapshot{}, err
+		}
+		v, _, err := resolveVocabulary(absPath, g.ext)
+		if err != nil {
+			slog.Error("git sync: failed to load vocabulary; keeping old snapshot",
+				"vocab_path", g.vocabPath, "err", err)
+			return snapshot{}, err
+		}
+		vocab = v
 	}
-	out, err := cmd.CombinedOutput()
+
+	regDir := dir
+	if g.subpath != "" {
+		regDir = filepath.Join(dir, g.subpath)
+	}
+	entries, err := loadDir(regDir, vocab)
 	if err != nil {
-		return fmt.Errorf("git %s: %w\n%s", args[0], err, out)
+		var ve RegistryValidationErrors
+		if asVE(err, &ve) {
+			slog.Error("git sync: vocabulary conflicts; keeping old snapshot",
+				"vocab_path", g.vocabPath,
+				"conflict_count", len(ve),
+				"conflicts", ve.Error())
+		}
+		return snapshot{}, err
 	}
-	return nil
+	return snapshot{agents: entries, vocab: vocab}, nil
 }
 
 func (g *GitStore) pollLoop() {
+	defer close(g.loopDone)
 	ticker := time.NewTicker(g.poll)
 	defer ticker.Stop()
 	for {
@@ -168,102 +195,113 @@ func (g *GitStore) pollLoop() {
 		case <-g.done:
 			return
 		case <-ticker.C:
-			if err := g.fetch(); err != nil {
-				slog.Error("git fetch failed", "err", err)
-				continue
-			}
-			if err := g.Reload(); err != nil {
-				slog.Error("git store reload failed", "err", err)
-			}
+			g.syncOnce("poll")
 		}
 	}
 }
 
-func (g *GitStore) fetch() error {
-	repoDir := g.repoDir()
-	// --no-hooks prevents execution of post-fetch/post-checkout hooks, which
-	// could be planted by an attacker with write access to the cache directory.
-	// --depth=1 is a security invariant: shallow clones prevent an attacker from
-	// crafting malformed git objects in history that could exploit git parsing bugs.
-	// Do not remove --depth=1 without a security review.
-	if err := g.runGit(repoDir, "fetch", "--no-hooks", "--depth=1", "origin", g.ref); err != nil {
-		return err
-	}
-	if err := g.runGit(repoDir, "reset", "--no-hooks", "--hard", "origin/"+g.ref); err != nil {
-		return err
-	}
-	// Validate that the remote URL in .git/config still matches the configured
-	// URL. An attacker with cache-dir write access could redirect the remote to
-	// an attacker-controlled repo; catching that here prevents registry poisoning.
-	return g.validateRemoteURL(repoDir)
+// SyncStatus describes the outcome of the git store's sync attempts.
+type SyncStatus struct {
+	// LastSuccess is the time of the last successful sync; zero if none yet
+	// in this process.
+	LastSuccess time.Time
+	// ConsecutiveFailures counts sync failures since the last success.
+	ConsecutiveFailures int
+	// LastError is the most recent sync error; empty after a success.
+	LastError string
 }
 
-// validateRemoteURL reads remote.origin.url from .git/config and compares it
-// against the configured URL. Returns an error if they differ.
-func (g *GitStore) validateRemoteURL(repoDir string) error {
-	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
+// SyncStatus returns a snapshot of the sync outcome counters.
+func (g *GitStore) SyncStatus() SyncStatus {
+	g.syncMu.Lock()
+	defer g.syncMu.Unlock()
+	return g.sync
+}
+
+// syncOnce runs a sync and records the outcome. It reports whether it succeeded.
+func (g *GitStore) syncOnce(phase string) bool {
+	err := g.syncNow()
+	g.recordSync(err)
 	if err != nil {
-		return fmt.Errorf("reading remote.origin.url: %w", err)
+		slog.Error("git sync failed", "phase", phase, "err", err)
+		return false
 	}
-	got := strings.TrimSpace(string(out))
-	if got != g.url {
-		return fmt.Errorf("remote.origin.url mismatch: got %q, want %q — possible cache tampering", got, g.url)
+	return true
+}
+
+func (g *GitStore) recordSync(err error) {
+	g.syncMu.Lock()
+	defer g.syncMu.Unlock()
+	if err != nil {
+		g.sync.ConsecutiveFailures++
+		g.sync.LastError = err.Error()
+		return
+	}
+	g.sync.LastSuccess = time.Now()
+	g.sync.ConsecutiveFailures = 0
+	g.sync.LastError = ""
+}
+
+// syncNow brings the served snapshot up to origin. With an unchanged origin SHA
+// it makes no git call beyond ls-remote. On any failure the previous snapshot
+// and directory stay in place and the new directory is removed.
+func (g *GitStore) syncNow() error {
+	g.syncRunMu.Lock()
+	defer g.syncRunMu.Unlock()
+
+	sha, err := g.remoteSHA()
+	if err != nil {
+		return err
+	}
+	g.mu.RLock()
+	served := g.curSHA
+	g.mu.RUnlock()
+	if sha == served {
+		return nil
+	}
+
+	dir, err := g.cloneFresh(sha)
+	if err != nil {
+		return err
+	}
+	snap, err := g.buildSnapshot(dir)
+	if err != nil {
+		g.removeDir(dir)
+		return err
+	}
+
+	g.mu.Lock()
+	old := g.curDir
+	g.snap = snap
+	g.curDir = dir
+	g.curSHA = sha
+	g.mu.Unlock()
+	if old != "" {
+		g.removeDir(old)
 	}
 	return nil
 }
 
-// Close stops the poll loop.
+// Reload syncs with origin now. It is safe to call from multiple goroutines.
+func (g *GitStore) Reload() error {
+	err := g.syncNow()
+	g.recordSync(err)
+	return err
+}
+
+// Close stops the poll loop, cancels any in-flight git call, waits for the loop
+// to exit, and removes the served clone directory, so shutdown is bounded.
 func (g *GitStore) Close() error {
 	close(g.done)
-	return nil
-}
-
-// Reload re-reads the vocabulary file and registry files from the cloned repo.
-// If vocabulary conflicts are found, the old snapshot is retained and all
-// conflicts are logged.
-func (g *GitStore) Reload() error {
-	g.reloadMu.Lock()
-	defer g.reloadMu.Unlock()
-
-	var (
-		vocab *vocabulary
-		err   error
-	)
-	if g.vocabPath != "" {
-		absPath, pathErr := resolveGitVocabPath(g.repoDir(), g.vocabPath)
-		if pathErr != nil {
-			return pathErr
-		}
-		vocab, err = loadVocabulary(absPath)
-		if err != nil {
-			slog.Error("git reload: failed to load vocabulary; keeping old snapshot",
-				"vocab_path", g.vocabPath, "err", err)
-			return err
-		}
-	}
-	return g.reload(vocab)
-}
-
-// reload builds a new snapshot and swaps it in atomically.
-// On vocabulary conflicts the old snapshot is retained.
-func (g *GitStore) reload(vocab *vocabulary) error {
-	entries, err := loadDir(g.registryDir(), vocab)
-	if err != nil {
-		var ve RegistryValidationErrors
-		if asVE(err, &ve) {
-			slog.Error("git reload: vocabulary conflicts; keeping old snapshot",
-				"vocab_path", g.vocabPath,
-				"conflict_count", len(ve),
-				"conflicts", ve.Error())
-			return err
-		}
-		return err
-	}
+	g.cancel()
+	<-g.loopDone
 	g.mu.Lock()
-	g.snap = snapshot{agents: entries, vocab: vocab}
+	dir := g.curDir
+	g.curDir = ""
 	g.mu.Unlock()
+	if dir != "" {
+		g.removeDir(dir)
+	}
 	return nil
 }
 

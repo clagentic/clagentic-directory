@@ -156,7 +156,7 @@ Run with git source:
 Use `--vocab-file` instead if the vocabulary file lives on local disk. Omitting both
 starts the daemon in ValidateOpen mode (UNSAFE).
 
-The service clones once at startup and re-fetches on the poll interval. The local cache survives restarts; a restart with the cache present skips the initial clone.
+The service shallow-clones into a fresh directory under the cache dir at every start, then on each poll interval reads the origin SHA with `git ls-remote` and clones again only when it changed. The cache is never reused across restarts, so a failed first clone stops the daemon from starting. Keep the cache dir `0700` and owned by the service user; leftover directories from an earlier process are deleted at startup.
 
 ### Key rotation
 

@@ -7,9 +7,38 @@ with the same argv is also a supported caller shape.
 
 ```bash
 clagentic-directory update --values /path/to/values.yaml
+clagentic-directory update          # reads the default values file
 ```
 
 Start from `examples/update-values.example.yaml`.
+
+## Values file location
+
+With no `--values`, update reads
+`<config root>/clagentic/directory/update-values.yaml`, where the config root
+is `$XDG_CONFIG_HOME`, else `$HOME/.config` (for root, normally
+`/root/.config/clagentic/directory/update-values.yaml`). The deployment-config
+repo installs that file; this repo ships none. If the root cannot be resolved
+(neither variable set, or a relative `$XDG_CONFIG_HOME`) or the file is
+missing, update exits 2 naming the path. There is no other fallback.
+
+Every run first prints `values: <path> (default|explicit)` on stdout, before
+reading the file, so a log shows which file was used. The default depends on
+the runner's `XDG_CONFIG_HOME` and `HOME`.
+
+The values file, default or explicit, must be a regular file (a symlink is
+refused), owned by the user running update, and not group- or world-writable
+(mode 0600 or 0644). Otherwise update exits 2 naming the path and the rule:
+the file decides what root builds and installs.
+
+## Post-merge model
+
+This repo's `.clagentic/loadout/config.yaml` holds one post-merge step,
+`clagentic-directory update`, with no arguments and no host value. A merge here
+runs the already-installed binary, which converges the host from its own values
+file. The first merge after this default was introduced runs a binary that
+predates it and exits 2; run `clagentic-directory update --values <file>` once
+by hand to install a binary that has it.
 
 ## What it does
 
@@ -164,7 +193,7 @@ version fetches `origin` instead, which changes behaviour for existing
 | Code | Meaning |
 |---|---|
 | 0 | Converged, with or without changes |
-| 2 | Invalid values file (including a `source_url` that is not https or ssh), unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
+| 2 | Invalid values file (including a `source_url` that is not https or ssh), an unsafe values file (symlink, wrong owner, group- or world-writable), a missing default values file, unreadable values, bad usage, or `binary.source_dir` is not a git checkout with an `origin` remote |
 | 3 | Insufficient privilege (not root) |
 | 4 | Apply failure (fetch or unknown `source_ref`, build, file write, systemctl) |
 | 5 | `/readyz` did not pass in time; inspect with `journalctl -u <unit>` |

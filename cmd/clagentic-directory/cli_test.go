@@ -191,3 +191,16 @@ func TestInspectSubcommand_DefaultOutputDir(t *testing.T) {
 		t.Fatal("expected at least one file in proposed_changes/, got 0")
 	}
 }
+
+func TestRevisionPrefersStampedBuildRevision(t *testing.T) {
+	old := buildRevision
+	t.Cleanup(func() { buildRevision = old })
+	buildRevision = "0123abc-dirty"
+	if got := revision(); got != "0123abc-dirty" {
+		t.Fatalf("revision() = %q", got)
+	}
+	buildRevision = ""
+	if got := revision(); got == "" {
+		t.Fatal("revision() empty without a stamp")
+	}
+}

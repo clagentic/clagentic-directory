@@ -21,10 +21,22 @@ endif
 # GOMODCACHE needs no fallback of its own: Go derives it from GOPATH, which is
 # either the caller's value or the one set above.
 
+# REVISION is the commit the build comes from, stamped into the binary as
+# main.buildRevision. A tree with uncommitted changes gets a -dirty suffix so a
+# binary never claims a commit it was not built from. Outside a git checkout it
+# is empty and nothing is stamped.
+REVISION := $(shell git -C $(ROOT) rev-parse HEAD 2>/dev/null)
+ifneq ($(REVISION),)
+ifneq ($(shell git -C $(ROOT) status --porcelain --untracked-files=no 2>/dev/null),)
+REVISION := $(REVISION)-dirty
+endif
+LDFLAGS := -X main.buildRevision=$(REVISION)
+endif
+
 .PHONY: build test test-json test-scripts vet fmt check
 
 build:
-	go build -C $(ROOT) -o clagentic-directory ./cmd/clagentic-directory
+	go build -C $(ROOT) -trimpath -ldflags "$(LDFLAGS)" -o clagentic-directory ./cmd/clagentic-directory
 
 test:
 	go test -C $(ROOT) ./...

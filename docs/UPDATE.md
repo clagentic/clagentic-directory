@@ -58,7 +58,7 @@ files a builder left there cannot reach the installed binary.
    when unset, fetch the remote's default branch (`HEAD`, resolved by the
    remote, not assumed to be `main`).
 3. Export that exact commit into a private temporary directory and run
-   `go build -C <export> -trimpath -ldflags "-X main.buildRevision=<commit>" -o <staged> -- <binary.package>`
+   `go build -C <export> -trimpath -buildvcs=false -ldflags "-X main.buildRevision=<commit>" -o <staged> -- <binary.package>`
    there. The directory is removed afterwards, success or not.
 
 ### What is compared
@@ -66,8 +66,13 @@ files a builder left there cannot reach the installed binary.
 Builds are compared on the resolved source commit, not on binary bytes. An
 export carries no VCS metadata and sits at a fresh temporary path, and without
 `-trimpath` that path is embedded in the binary and its build id, so two builds
-of one commit differ byte for byte. `-trimpath` now makes them identical, but
-currency does not depend on that.
+of one commit differ byte for byte. `-trimpath` now makes them identical, and
+`-buildvcs=false` (on `update` and on `make build`) stops Go embedding
+`vcs.revision`, `vcs.time` and `vcs.modified` when building inside a checkout,
+so `make build` and `update` produce the same bytes at one commit (a test builds
+both and compares SHA-256). Currency does not depend on that: it only means the
+first `update` after a `make build` deploy, which has no install record,
+rebuilds, finds identical bytes, writes the record and does not restart.
 
 After installing, update writes `<install_path>.source` (root, mode 0644) with
 the commit, the Go package and the SHA-256 of the installed binary. On the next
@@ -93,7 +98,9 @@ The unit file is compared by its rendered bytes, as before.
 Every build sets `main.buildRevision` to the commit it was built from:
 `update` (with `source_url` or `source_dir`; both build an exported commit, so
 the stamp is never dirty) and `make build` (the commit of the working tree,
-with a `-dirty` suffix when tracked files have uncommitted changes). Read it
+with a `-dirty` suffix when tracked files have uncommitted changes or an
+untracked `.go`, `go.mod` or `go.sum` file exists, since `go build` compiles
+those; other untracked files such as `attempts/` do not count). Read it
 with `clagentic-directory --version`; the daemon also logs it at start as
 `revision=<sha>`.
 

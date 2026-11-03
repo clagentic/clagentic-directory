@@ -15,6 +15,15 @@ paths:
   ".clagentic/loadout/config.yaml": {class: internal}
   # Crew enrollment config for this deployment.
   ".crew/**": {class: internal}
+# The category each scanner bobbie-audit runs looks for, read by `loadout-review
+# post --scanner-input` from the merge base. A scanner not named here is in the
+# security floor and its verdict posts DEGRADED.
+review:
+  scanners:
+    gitleaks: {category: secrets_exposure}
+    trufflehog: {category: secrets_exposure}
+    semgrep: {category: injection}
+    osv-scanner: {category: supply_chain}
 # Go has no JUnit output of its own, so both commands go through
 # scripts/go_test_junit.py, which asks the Makefile (test-json) to run go test and
 # converts the result. Exit code of each: 0 all passed (or `files` selected no Go

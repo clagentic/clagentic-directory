@@ -97,7 +97,10 @@ so it suits a deployment-config repo's post-merge step.
 clagentic-directory update --values /path/to/values.yaml
 ```
 
-The values schema, step order and exit codes are in `docs/UPDATE.md`; start
+With no `--values`, it reads `$XDG_CONFIG_HOME` or `$HOME/.config` plus
+`/clagentic/directory/update-values.yaml`; the file must be owned by the
+running user and not group- or world-writable. The default path, file checks
+and post-merge model are in `docs/UPDATE.md`. The values schema, step order and exit codes are also there; start
 from `examples/update-values.example.yaml`.
 
 ---

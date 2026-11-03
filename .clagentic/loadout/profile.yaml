@@ -11,7 +11,8 @@ exposure: internet
 data: public_or_none
 confirmed_at: 2026-11-02
 paths:
-  # Holds this deployment's post_merge_steps: absolute host paths and the systemctl restart.
+  # Holds the roles, the merge_requirements, and the one generic post-merge step
+  # (`clagentic-directory update`, no arguments, no host value).
   ".clagentic/loadout/config.yaml": {class: internal}
   # Crew enrollment config for this deployment.
   ".crew/**": {class: internal}

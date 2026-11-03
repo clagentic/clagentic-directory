@@ -13,22 +13,30 @@ import (
 
 // runUpdate implements the 'update' subcommand against the real host.
 func runUpdate(args []string) int {
-	return runUpdateWith(args, update.SystemDeps(), os.Stdout, os.Stderr)
+	return runUpdateWith(args, update.SystemDeps(), os.Getenv, os.Stdout, os.Stderr)
 }
 
 // runUpdateWith is runUpdate with injectable collaborators for tests.
-func runUpdateWith(args []string, deps update.Deps, stdout, stderr io.Writer) int {
+func runUpdateWith(args []string, deps update.Deps, getenv func(string) string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	valuesPath := fs.String("values", "", "path to the deployment values file (required)")
+	valuesPath := fs.String("values", "", "path to the deployment values file (default: <user config dir>/"+update.DefaultValuesRel+", i.e. $XDG_CONFIG_HOME or $HOME/.config); must be a regular file owned by the running user and not group- or world-writable")
 	if err := fs.Parse(args); err != nil {
 		return update.ExitInvalid
 	}
-	if *valuesPath == "" {
-		fmt.Fprintln(stderr, "update: --values is required")
-		return update.ExitInvalid
+	path, source := *valuesPath, "explicit"
+	if path == "" {
+		var err error
+		if path, err = update.DefaultValuesPath(getenv); err != nil {
+			fmt.Fprintf(stderr, "update: %v; pass --values\n", err)
+			return update.ExitInvalid
+		}
+		source = "default"
 	}
-	v, err := update.LoadValues(*valuesPath)
+	// Printed before anything is read so a log shows where values came from
+	// even when loading fails.
+	fmt.Fprintf(stdout, "values: %s (%s)\n", path, source)
+	v, err := update.LoadValues(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "update: %v\n", err)
 		return update.ExitInvalid

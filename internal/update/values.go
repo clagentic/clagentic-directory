@@ -108,11 +108,16 @@ type ReadyzValues struct {
 	Timeout string `yaml:"timeout"`
 }
 
-// LoadValues reads, strictly decodes and validates the values file at path.
+// LoadValues checks (regular file, owned by the euid, not group/world
+// writable), reads, strictly decodes and validates the values file at path.
 func LoadValues(path string) (*Values, error) {
-	data, err := os.ReadFile(path)
+	return loadValuesAs(path, uint32(os.Geteuid()))
+}
+
+func loadValuesAs(path string, euid uint32) (*Values, error) {
+	data, err := readValuesFile(path, euid)
 	if err != nil {
-		return nil, fmt.Errorf("read values %s: %w", path, err)
+		return nil, err
 	}
 	return ParseValues(data)
 }

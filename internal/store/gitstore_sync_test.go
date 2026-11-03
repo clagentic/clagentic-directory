@@ -143,6 +143,116 @@ func TestGitStoreFetchNeutralizesPlantedConfigCommands(t *testing.T) {
 	}
 }
 
+// appendRepoConfig appends raw text to the cache clone's .git/config, as an
+// attacker with cache-dir write access would.
+func appendRepoConfig(t *testing.T, gs *GitStore, text string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(gs.repoDir(), ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func markerScript(t *testing.T, dir, name string) (script, marker string) {
+	t.Helper()
+	marker = filepath.Join(dir, name+"-ran")
+	script = filepath.Join(dir, name+".sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\ncat\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return script, marker
+}
+
+func TestGitStoreIgnoresPlantedRepoConfig(t *testing.T) {
+	bare, work := newOrigin(t)
+	gs := newTestGitStore(t, bare, time.Hour)
+	dir := t.TempDir()
+
+	_, extMarker := markerScript(t, dir, "ext")
+	fsmScript, fsmMarker := markerScript(t, dir, "fsm")
+	smudge, smudgeMarker := markerScript(t, dir, "smudge")
+	cred, credMarker := markerScript(t, dir, "cred")
+	proxy, proxyMarker := markerScript(t, dir, "proxy")
+
+	appendRepoConfig(t, gs, "[url \"ext::sh -c 'touch "+extMarker+"'\"]\n\tinsteadOf = file://"+bare+"\n"+
+		"[protocol \"ext\"]\n\tallow = always\n"+
+		"[protocol]\n\tallow = always\n"+
+		"[core]\n\tfsmonitor = "+fsmScript+"\n\tgitProxy = "+proxy+"\n\tsshCommand = "+proxy+"\n"+
+		"[filter \"x\"]\n\tsmudge = "+smudge+"\n\trequired = false\n"+
+		"[credential]\n\thelper = !"+cred+"\n")
+	attrs := filepath.Join(gs.repoDir(), ".git", "info", "attributes")
+	if err := os.MkdirAll(filepath.Dir(attrs), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(attrs, []byte("*.yaml filter=x\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	advanceOrigin(t, work, "beta")
+	if err := gs.fetch(); err != nil {
+		t.Fatalf("sync with planted config: %v", err)
+	}
+	for name, m := range map[string]string{"ext:: transport": extMarker, "core.fsmonitor": fsmMarker,
+		"filter smudge": smudgeMarker, "credential.helper": credMarker, "core.gitProxy/sshCommand": proxyMarker} {
+		if _, err := os.Stat(m); err == nil {
+			t.Fatalf("planted %s command ran", name)
+		}
+	}
+	want := runHostGit(t, work, "rev-parse", "HEAD")
+	if got := runHostGit(t, gs.repoDir(), "rev-parse", "HEAD"); got != want {
+		t.Fatalf("clone did not advance: HEAD %q != origin %q", got, want)
+	}
+	cfg, err := os.ReadFile(filepath.Join(gs.repoDir(), ".git", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCfg, _ := canonicalGitConfig(gs.url, gs.ref)
+	if string(cfg) != wantCfg {
+		t.Fatalf(".git/config not canonical after sync:\n%s", cfg)
+	}
+}
+
+func TestGitStoreRejectsNonPlainGitDir(t *testing.T) {
+	bare, _ := newOrigin(t)
+	gs := newTestGitStore(t, bare, time.Hour)
+	gitDir := filepath.Join(gs.repoDir(), ".git")
+	moved := gitDir + ".real"
+	if err := os.Rename(gitDir, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(moved, gitDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := gs.fetch(); err == nil {
+		t.Fatal("fetch accepted a symlinked .git")
+	}
+}
+
+func TestGitURLSchemeAllowlist(t *testing.T) {
+	cases := map[string]string{
+		"https://example.invalid/r.git": "https",
+		"ssh://git@example.invalid/r":   "ssh",
+		"git@example.invalid:org/r.git": "ssh",
+		"file:///srv/r.git":             "file",
+		"/srv/r.git":                    "file",
+	}
+	for url, want := range cases {
+		got, err := gitURLScheme(url)
+		if err != nil || got != want {
+			t.Errorf("gitURLScheme(%q) = %q, %v; want %q", url, got, err, want)
+		}
+	}
+	for _, url := range []string{"ext::sh -c id", "git://example.invalid/r", "ftp://example.invalid/r"} {
+		if _, err := gitURLScheme(url); err == nil {
+			t.Errorf("gitURLScheme(%q) accepted", url)
+		}
+	}
+}
+
 func TestGitStoreStartupSyncAdvancesStaleCache(t *testing.T) {
 	bare, work := newOrigin(t)
 	cache := t.TempDir()

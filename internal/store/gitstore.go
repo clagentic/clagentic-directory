@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -179,10 +180,26 @@ func (g *GitStore) registryDir() string {
 	return g.repoDir()
 }
 
+// runGit runs git and discards stdout.
 func (g *GitStore) runGit(dir string, args ...string) error {
+	_, err := g.runGitOut(dir, args...)
+	return err
+}
+
+// runGitOut runs git under the store's timeout with config isolation: the
+// system and global config are disabled, command-running keys are overridden
+// on the command line (defense in depth), and only the configured URL's
+// transport is allowed. Callers in the cache clone must have just called
+// writeCanonicalConfig; see runRepoGit.
+func (g *GitStore) runGitOut(dir string, args ...string) (string, error) {
+	proto, err := protocolAllowlist(g.url)
+	if err != nil {
+		return "", err
+	}
+	full := append(append(safeGitConfig(), proto...), args...)
 	ctx, cancel := context.WithTimeout(g.ctx, g.gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", full...)
 	// Bound the wait for output pipes if a killed git left a child holding them.
 	cmd.WaitDelay = time.Second
 	if dir != "" {
@@ -193,20 +210,35 @@ func (g *GitStore) runGit(dir string, args ...string) error {
 		// GIT_SSH_COMMAND or GIT_ASKPASS overrides from the parent process environment.
 		// StrictHostKeyChecking=accept-new accepts new hosts on first connect but
 		// rejects unexpected key changes, preventing silent MITM.
-		cmd.Env = []string{
+		cmd.Env = append([]string{
 			"PATH=" + os.Getenv("PATH"),
 			"HOME=" + os.Getenv("HOME"),
 			"GIT_SSH_COMMAND=ssh -i " + g.keyFile + " -o StrictHostKeyChecking=accept-new -o BatchMode=yes",
-		}
+		}, gitConfigIsolationEnv()...)
+	} else {
+		cmd.Env = append(os.Environ(), gitConfigIsolationEnv()...)
 	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("git %s: timed out after %s", gitSubcommand(args), g.gitTimeout)
+			return "", fmt.Errorf("git %s: timed out after %s", gitSubcommand(args), g.gitTimeout)
 		}
-		return fmt.Errorf("git %s: %w\n%s", gitSubcommand(args), err, out)
+		return "", fmt.Errorf("git %s: %w\n%s%s", gitSubcommand(args), err, stdout.String(), stderr.String())
 	}
-	return nil
+	return stdout.String(), nil
+}
+
+// runRepoGit rewrites the cache clone's .git/config to the canonical config
+// immediately before every git invocation, so nothing planted between calls
+// reaches git.
+func (g *GitStore) runRepoGit(args ...string) (string, error) {
+	repoDir := g.repoDir()
+	if err := writeCanonicalConfig(repoDir, g.url, g.ref); err != nil {
+		return "", err
+	}
+	return g.runGitOut(repoDir, args...)
 }
 
 // gitSubcommand returns the git subcommand name, skipping leading `-c k=v`
@@ -283,19 +315,11 @@ func (g *GitStore) recordSync(err error) {
 	g.sync.LastError = ""
 }
 
-// safeGitConfig neutralizes repo-config keys that make fetch/reset execute a
-// command, since an attacker with cache-dir write access could plant them in
-// .git/config. Command-line -c overrides repo config.
-//   - core.hooksPath: hooks (reference-transaction, post-checkout, ...).
-//   - core.fsmonitor: fsmonitor command run on index refresh during reset.
-//
-// remote.origin.uploadpack cannot be overridden with -c (git keeps the first
-// value, which is the repo config), so fetch targets the configured URL
-// directly with an explicit refspec; remote.origin.* config is then not read.
-// Not coverable with -c: filter.<name>.smudge/process (names come from the
-// fetched tree's .gitattributes) and credential.helper/core.gitProxy (no
-// "unset" form). core.sshCommand is lower precedence than the GIT_SSH_COMMAND
-// set in runGit for git@ URLs.
+// safeGitConfig is defense in depth. The control is the canonical .git/config
+// (writeCanonicalConfig) plus GIT_CONFIG_NOSYSTEM/GLOBAL isolation and the
+// protocol allowlist, which leave no unwritten config for git to read. These
+// command-line overrides additionally pin the two keys that run commands during
+// fetch/reset. Neither `fetch` nor `reset` accepts a --no-hooks flag.
 func safeGitConfig() []string {
 	return []string{
 		"-c", "core.hooksPath=/dev/null",
@@ -303,45 +327,30 @@ func safeGitConfig() []string {
 	}
 }
 
-func gitArgs(args ...string) []string {
-	return append(safeGitConfig(), args...)
-}
-
 func (g *GitStore) fetch() error {
-	repoDir := g.repoDir()
-	// safeGitConfig options are top-level git options: neither `fetch` nor
-	// `reset` accepts a --no-hooks flag.
 	// --depth=1 is a security invariant: shallow clones prevent an attacker from
 	// crafting malformed git objects in history that could exploit git parsing bugs.
 	// Do not remove --depth=1 without a security review.
-	if err := g.runGit(repoDir, gitArgs("fetch", "--depth=1", g.url, "+refs/heads/"+g.ref+":refs/remotes/origin/"+g.ref)...); err != nil {
+	// The fetch targets the configured URL with an explicit refspec.
+	if _, err := g.runRepoGit("fetch", "--depth=1", g.url, "+refs/heads/"+g.ref+":refs/remotes/origin/"+g.ref); err != nil {
 		return err
 	}
-	if err := g.runGit(repoDir, gitArgs("reset", "--hard", "origin/"+g.ref)...); err != nil {
+	if _, err := g.runRepoGit("reset", "--hard", "origin/"+g.ref); err != nil {
 		return err
 	}
-	// Validate that the remote URL in .git/config still matches the configured
-	// URL. An attacker with cache-dir write access could redirect the remote to
-	// an attacker-controlled repo; catching that here prevents registry poisoning.
-	return g.validateRemoteURL(repoDir)
+	// Re-read the remote URL through git as a check that the canonical config
+	// is what git sees; a mismatch means the config was swapped mid-sync.
+	return g.validateRemoteURL()
 }
 
-// validateRemoteURL reads remote.origin.url from .git/config and compares it
-// against the configured URL. Returns an error if they differ.
-func (g *GitStore) validateRemoteURL(repoDir string) error {
-	ctx, cancel := context.WithTimeout(g.ctx, g.gitTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
-	cmd.Dir = repoDir
-	cmd.WaitDelay = time.Second
-	out, err := cmd.Output()
+// validateRemoteURL reads remote.origin.url through git and compares it against
+// the configured URL. Returns an error if they differ.
+func (g *GitStore) validateRemoteURL() error {
+	out, err := g.runRepoGit("config", "--get", "remote.origin.url")
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("reading remote.origin.url: timed out after %s", g.gitTimeout)
-		}
 		return fmt.Errorf("reading remote.origin.url: %w", err)
 	}
-	got := strings.TrimSpace(string(out))
+	got := strings.TrimSpace(out)
 	if got != g.url {
 		return fmt.Errorf("remote.origin.url mismatch: got %q, want %q — possible cache tampering", got, g.url)
 	}

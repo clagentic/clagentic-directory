@@ -113,6 +113,35 @@ func TestGitStoreFetchSuppressesHooks(t *testing.T) {
 	}
 }
 
+func TestGitStoreFetchNeutralizesPlantedConfigCommands(t *testing.T) {
+	bare, work := newOrigin(t)
+	gs := newTestGitStore(t, bare, time.Hour)
+	markers := t.TempDir()
+	fsm := filepath.Join(markers, "fsmonitor-ran")
+	up := filepath.Join(markers, "uploadpack-ran")
+	fsmScript := filepath.Join(markers, "fsm.sh")
+	upScript := filepath.Join(markers, "up.sh")
+	if err := os.WriteFile(fsmScript, []byte("#!/bin/sh\ntouch "+fsm+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(upScript, []byte("#!/bin/sh\ntouch "+up+"\nexec git-upload-pack \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	runHostGit(t, gs.repoDir(), "config", "core.fsmonitor", fsmScript)
+	runHostGit(t, gs.repoDir(), "config", "remote.origin.uploadpack", upScript)
+
+	advanceOrigin(t, work, "beta")
+	if err := gs.fetch(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(fsm); err == nil {
+		t.Fatal("planted core.fsmonitor command ran during fetch/reset")
+	}
+	if _, err := os.Stat(up); err == nil {
+		t.Fatal("planted remote.origin.uploadpack command ran during fetch")
+	}
+}
+
 func TestGitStoreStartupSyncAdvancesStaleCache(t *testing.T) {
 	bare, work := newOrigin(t)
 	cache := t.TempDir()
@@ -181,4 +210,20 @@ func TestGitStoreFailedFetchRecordedThenRecovers(t *testing.T) {
 	if st := gs.SyncStatus(); st.ConsecutiveFailures != 0 || st.LastError != "" {
 		t.Fatalf("status not reset: %+v", st)
 	}
+}
+
+func TestGitStorePollLoopRecordsFailures(t *testing.T) {
+	bare, _ := newOrigin(t)
+	gs := newTestGitStore(t, bare, 20*time.Millisecond)
+	if err := os.Rename(bare, bare+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if gs.SyncStatus().ConsecutiveFailures >= 3 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("poll loop failures were not recorded in SyncStatus")
 }

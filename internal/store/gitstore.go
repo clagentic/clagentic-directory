@@ -33,7 +33,8 @@ type GitStore struct {
 	syncMu sync.Mutex // protects sync
 	sync   SyncStatus
 
-	done chan struct{}
+	done     chan struct{}
+	loopDone chan struct{} // closed when pollLoop has exited
 }
 
 // GitStoreConfig holds configuration for a GitStore.
@@ -71,6 +72,7 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 		poll:      cfg.Poll,
 		vocabPath: cfg.VocabularyPath,
 		done:      make(chan struct{}),
+		loopDone:  make(chan struct{}),
 	}
 
 	repoDir := gs.repoDir()
@@ -189,6 +191,7 @@ func gitSubcommand(args []string) string {
 }
 
 func (g *GitStore) pollLoop() {
+	defer close(g.loopDone)
 	ticker := time.NewTicker(g.poll)
 	defer ticker.Stop()
 	for {
@@ -196,8 +199,7 @@ func (g *GitStore) pollLoop() {
 		case <-g.done:
 			return
 		case <-ticker.C:
-			if err := g.fetch(); err != nil {
-				slog.Error("git fetch failed", "err", err)
+			if !g.syncOnce("poll") {
 				continue
 			}
 			if err := g.Reload(); err != nil {
@@ -249,18 +251,41 @@ func (g *GitStore) recordSync(err error) {
 	g.sync.LastError = ""
 }
 
+// safeGitConfig neutralizes repo-config keys that make fetch/reset execute a
+// command, since an attacker with cache-dir write access could plant them in
+// .git/config. Command-line -c overrides repo config.
+//   - core.hooksPath: hooks (reference-transaction, post-checkout, ...).
+//   - core.fsmonitor: fsmonitor command run on index refresh during reset.
+//
+// remote.origin.uploadpack cannot be overridden with -c (git keeps the first
+// value, which is the repo config), so fetch targets the configured URL
+// directly with an explicit refspec; remote.origin.* config is then not read.
+// Not coverable with -c: filter.<name>.smudge/process (names come from the
+// fetched tree's .gitattributes) and credential.helper/core.gitProxy (no
+// "unset" form). core.sshCommand is lower precedence than the GIT_SSH_COMMAND
+// set in runGit for git@ URLs.
+func safeGitConfig() []string {
+	return []string{
+		"-c", "core.hooksPath=/dev/null",
+		"-c", "core.fsmonitor=false",
+	}
+}
+
+func gitArgs(args ...string) []string {
+	return append(safeGitConfig(), args...)
+}
+
 func (g *GitStore) fetch() error {
 	repoDir := g.repoDir()
-	// `-c core.hooksPath=/dev/null` prevents execution of hooks, which could be
-	// planted by an attacker with write access to the cache directory. It is a
-	// top-level git option: neither `fetch` nor `reset` accepts a --no-hooks flag.
+	// safeGitConfig options are top-level git options: neither `fetch` nor
+	// `reset` accepts a --no-hooks flag.
 	// --depth=1 is a security invariant: shallow clones prevent an attacker from
 	// crafting malformed git objects in history that could exploit git parsing bugs.
 	// Do not remove --depth=1 without a security review.
-	if err := g.runGit(repoDir, "-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "origin", g.ref); err != nil {
+	if err := g.runGit(repoDir, gitArgs("fetch", "--depth=1", g.url, "+refs/heads/"+g.ref+":refs/remotes/origin/"+g.ref)...); err != nil {
 		return err
 	}
-	if err := g.runGit(repoDir, "-c", "core.hooksPath=/dev/null", "reset", "--hard", "origin/"+g.ref); err != nil {
+	if err := g.runGit(repoDir, gitArgs("reset", "--hard", "origin/"+g.ref)...); err != nil {
 		return err
 	}
 	// Validate that the remote URL in .git/config still matches the configured
@@ -285,9 +310,10 @@ func (g *GitStore) validateRemoteURL(repoDir string) error {
 	return nil
 }
 
-// Close stops the poll loop.
+// Close stops the poll loop and waits for any in-flight fetch to finish.
 func (g *GitStore) Close() error {
 	close(g.done)
+	<-g.loopDone
 	return nil
 }
 

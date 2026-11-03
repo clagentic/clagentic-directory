@@ -140,11 +140,17 @@ func (p HTTPProber) Ready(url, token string) error {
 	return nil
 }
 
-// GoBuilder runs `go build` from the source checkout.
+// GoBuilder runs `go build` from the exported source tree. -trimpath keeps the
+// private export path out of the binary so the same commit builds the same
+// bytes from any directory; the revision is stamped through the main
+// package's buildRevision variable because an export carries no VCS metadata.
+// -buildvcs=false keeps the Makefile build (run inside a checkout) and this one
+// byte-identical at one commit: the stamp is the only provenance in either.
 type GoBuilder struct{ Run CommandRunner }
 
-func (b GoBuilder) Build(srcDir, pkg, outPath string) error {
-	if out, err := b.Run("go", "build", "-C", srcDir, "-o", outPath, "--", pkg); err != nil {
+func (b GoBuilder) Build(srcDir, pkg, outPath, revision string) error {
+	args := []string{"build", "-C", srcDir, "-trimpath", "-buildvcs=false", "-ldflags", "-X main.buildRevision=" + revision, "-o", outPath, "--", pkg}
+	if out, err := b.Run("go", args...); err != nil {
 		return fmt.Errorf("go build: %v: %s", err, out)
 	}
 	return nil

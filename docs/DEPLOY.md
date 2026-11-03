@@ -5,7 +5,7 @@
 Build the binary and point `--registry-dir` at a directory of agent YAML files:
 
 ```bash
-go build -o clagentic-directory ./cmd/clagentic-directory/
+make build   # stamps the commit as the binary's revision (see `--version`); -dirty if tracked files changed or untracked .go/go.mod/go.sum exist
 ./clagentic-directory \
   --registry-source file \
   --registry-dir /path/to/your/registry \

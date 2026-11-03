@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -189,5 +190,30 @@ func TestInspectSubcommand_DefaultOutputDir(t *testing.T) {
 	}
 	if len(entries) == 0 {
 		t.Fatal("expected at least one file in proposed_changes/, got 0")
+	}
+}
+
+func TestRevisionPrefersStampedBuildRevision(t *testing.T) {
+	old := buildRevision
+	t.Cleanup(func() { buildRevision = old })
+	buildRevision = "0123abc-dirty"
+	if got := revision(); got != "0123abc-dirty" {
+		t.Fatalf("revision() = %q", got)
+	}
+}
+
+func TestRevisionFromFallsBackToBuildInfo(t *testing.T) {
+	bi := &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "feedface"}}}
+	if got := revisionFrom("", bi, true); got != "feedface" {
+		t.Fatalf("revisionFrom with vcs.revision = %q, want feedface", got)
+	}
+	if got := revisionFrom("stamp", bi, true); got != "stamp" {
+		t.Fatalf("stamp must win over buildinfo, got %q", got)
+	}
+	if got := revisionFrom("", &debug.BuildInfo{}, true); got != "embedded-vcs-or-unknown" {
+		t.Fatalf("no vcs.revision = %q", got)
+	}
+	if got := revisionFrom("", nil, false); got != "embedded-vcs-or-unknown" {
+		t.Fatalf("no buildinfo = %q", got)
 	}
 }

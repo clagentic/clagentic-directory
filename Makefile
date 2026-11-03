@@ -21,10 +21,28 @@ endif
 # GOMODCACHE needs no fallback of its own: Go derives it from GOPATH, which is
 # either the caller's value or the one set above.
 
+# REVISION is the commit the build comes from, stamped into the binary as
+# main.buildRevision. A tree with uncommitted changes gets a -dirty suffix so a
+# binary never claims a commit it was not built from. Outside a git checkout it
+# is empty and nothing is stamped. Dirty means a tracked file changed, or an
+# untracked file go build would compile exists (.go, go.mod, go.sum); other
+# untracked files, such as a clone's attempts/ directory, do not count.
+REVISION := $(shell git -C $(ROOT) rev-parse HEAD 2>/dev/null)
+ifneq ($(REVISION),)
+ifneq ($(shell git -C $(ROOT) status --porcelain --untracked-files=no 2>/dev/null)$(shell git -C $(ROOT) ls-files --others --exclude-standard -- '*.go' go.mod go.sum 2>/dev/null),)
+REVISION := $(REVISION)-dirty
+endif
+LDFLAGS := -X main.buildRevision=$(REVISION)
+endif
+
 .PHONY: build test test-json test-scripts vet fmt check
 
+# -trimpath drops the build directory from the binary and -buildvcs=false
+# omits Go's embedded vcs.* build info, so the stamped revision is the only
+# provenance. This build and `update`'s export build (which has no .git)
+# then produce identical bytes at one commit.
 build:
-	go build -C $(ROOT) -o clagentic-directory ./cmd/clagentic-directory
+	go build -C $(ROOT) -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o clagentic-directory ./cmd/clagentic-directory
 
 test:
 	go test -C $(ROOT) ./...

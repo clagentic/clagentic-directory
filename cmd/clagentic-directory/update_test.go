@@ -75,7 +75,7 @@ type cmdBuilder struct {
 	content string
 }
 
-func (b cmdBuilder) Build(_, _, out string) error { b.fs.files[out] = []byte(b.content); return nil }
+func (b cmdBuilder) Build(_, _, out, _ string) error { b.fs.files[out] = []byte(b.content); return nil }
 
 type cmdSource struct{ err error }
 
@@ -136,11 +136,11 @@ type envBuilder struct {
 	env   map[string]string
 }
 
-func (b envBuilder) Build(src, pkg, out string) error {
+func (b envBuilder) Build(src, pkg, out, rev string) error {
 	if b.env["PATH"] == "" {
 		return errors.New("build: PATH is empty")
 	}
-	return b.inner.Build(src, pkg, out)
+	return b.inner.Build(src, pkg, out, rev)
 }
 
 func TestCallerShapesAcrossHostStates(t *testing.T) {

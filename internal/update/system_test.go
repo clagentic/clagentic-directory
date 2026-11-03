@@ -98,14 +98,14 @@ func TestGoBuilderArgs(t *testing.T) {
 		got = name + " " + strings.Join(args, " ")
 		return "", nil
 	}}
-	if err := b.Build("/src", "./cmd/x", "/out/bin.update-new"); err != nil {
+	if err := b.Build("/src", "./cmd/x", "/out/bin.update-new", "abc123"); err != nil {
 		t.Fatal(err)
 	}
-	if got != "go build -C /src -o /out/bin.update-new -- ./cmd/x" {
+	if got != "go build -C /src -trimpath -buildvcs=false -ldflags -X main.buildRevision=abc123 -o /out/bin.update-new -- ./cmd/x" {
 		t.Fatalf("got %s", got)
 	}
 	b.Run = func(string, ...string) (string, error) { return "syntax error", errors.New("exit 1") }
-	if err := b.Build("/src", "./x", "/o"); err == nil || !strings.Contains(err.Error(), "syntax error") {
+	if err := b.Build("/src", "./x", "/o", "r"); err == nil || !strings.Contains(err.Error(), "syntax error") {
 		t.Fatalf("err = %v", err)
 	}
 }

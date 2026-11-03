@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -17,10 +18,34 @@ import (
 	"github.com/clagentic/clagentic-directory/internal/store"
 )
 
-// buildRevision is injected by the binary-rebuild script via -ldflags "-X main.buildRevision=<sha>".
-// When not injected, the value is empty and the running binary relies on Go's built-in
-// debug/buildinfo VCS metadata (set automatically by go build from a git working tree).
+// buildRevision is the source commit the binary was built from, injected with
+// -ldflags "-X main.buildRevision=<sha>" by `update` and the Makefile (a
+// "-dirty" suffix marks uncommitted changes). A plain `go build` leaves it
+// empty and the binary falls back to Go's buildinfo VCS metadata.
 var buildRevision string
+
+// revision reports the build's source commit, or "embedded-vcs-or-unknown"
+// when neither the stamp nor buildinfo carries one.
+func revision() string {
+	bi, ok := debug.ReadBuildInfo()
+	return revisionFrom(buildRevision, bi, ok)
+}
+
+// revisionFrom is revision() with its inputs explicit so the buildinfo
+// fallback can be tested without a VCS-stamped test binary.
+func revisionFrom(stamp string, bi *debug.BuildInfo, ok bool) string {
+	if stamp != "" {
+		return stamp
+	}
+	if ok && bi != nil {
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" && s.Value != "" {
+				return s.Value
+			}
+		}
+	}
+	return "embedded-vcs-or-unknown"
+}
 
 // directoryConfig is a minimal representation of the clagentic-directory config file.
 // Only fields needed by the inspect subcommand are decoded here.
@@ -175,7 +200,12 @@ func main() {
 		selfBuildUsageEventStoreURL = flag.String("self-build-usage-event-store-url", "", "Event store URL for usage inference (default off)")
 		selfBuildUsageWindow        = flag.Duration("self-build-usage-window", time.Hour, "Rolling window for usage-driven inference")
 	)
+	showVersion := flag.Bool("version", false, "Print the build revision and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(revision())
+		return
+	}
 
 	// CLAGENTIC_DIRECTORY_LOG_LEVEL overrides --log-level when set.
 	if envLevel := os.Getenv("CLAGENTIC_DIRECTORY_LOG_LEVEL"); envLevel != "" {
@@ -194,11 +224,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
 	// Log build revision so operators can confirm which binary is running.
-	if buildRevision != "" {
-		slog.Info("clagentic-directory starting", "revision", buildRevision)
-	} else {
-		slog.Info("clagentic-directory starting", "revision", "embedded-vcs-or-unknown")
-	}
+	slog.Info("clagentic-directory starting", "revision", revision())
 
 	if err := checkVocabFlags(*registrySource, *vocabFile, *registryGitVocab); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

@@ -193,7 +193,7 @@ func TestCallerShapesAcrossHostStates(t *testing.T) {
 				for run := 1; run <= 2; run++ {
 					out.Reset()
 					sd.calls = nil
-					if rc := runUpdateWith(shape.argv(vp), deps, &out, &errb); rc != 0 {
+					if rc := runUpdateWith(shape.argv(vp), deps, noEnv, &out, &errb); rc != 0 {
 						t.Fatalf("run %d rc=%d stderr=%s", run, rc, errb.String())
 					}
 					if run == 1 && effective == "converged" && len(sd.calls) != 0 {
@@ -221,7 +221,7 @@ func TestBuildNeedsPATH(t *testing.T) {
 	deps, f, _ := newDeps(true, nil)
 	deps.Builder = envBuilder{cmdBuilder{f, "bin"}, map[string]string{}}
 	var out, errb bytes.Buffer
-	if rc := runUpdateWith([]string{"--values", vp}, deps, &out, &errb); rc != update.ExitApply {
+	if rc := runUpdateWith([]string{"--values", vp}, deps, noEnv, &out, &errb); rc != update.ExitApply {
 		t.Fatalf("rc=%d want %d", rc, update.ExitApply)
 	}
 }
@@ -249,16 +249,130 @@ func TestUpdateExitCodes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			deps, _, _ := newDeps(c.root, c.probe)
 			var out, errb bytes.Buffer
-			if rc := runUpdateWith(c.args, deps, &out, &errb); rc != c.want {
+			if rc := runUpdateWith(c.args, deps, noEnv, &out, &errb); rc != c.want {
 				t.Fatalf("rc=%d want %d stderr=%s", rc, c.want, errb.String())
 			}
 		})
 	}
 }
 
+func noEnv(string) string { return "" }
+
+func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+// installDefault writes the values file at the default location under root.
+func installDefault(t *testing.T, root string, mode os.FileMode) string {
+	t.Helper()
+	p := filepath.Join(root, update.DefaultValuesRel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(updateValues), mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, mode); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestUpdateDefaultValuesPath(t *testing.T) {
+	xdg, home := t.TempDir(), t.TempDir()
+	xp := installDefault(t, xdg, 0o600)
+	hp := installDefault(t, filepath.Join(home, ".config"), 0o644)
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"XDG set", map[string]string{"XDG_CONFIG_HOME": xdg, "HOME": home}, xp},
+		{"HOME only", map[string]string{"HOME": home}, hp},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			deps, _, _ := newDeps(true, nil)
+			var out, errb bytes.Buffer
+			if rc := runUpdateWith(nil, deps, envOf(c.env), &out, &errb); rc != 0 {
+				t.Fatalf("rc=%d stderr=%s", rc, errb.String())
+			}
+			if want := "values: " + c.want + " (default)\n"; !strings.HasPrefix(out.String(), want) {
+				t.Fatalf("stdout %q does not start with %q", out.String(), want)
+			}
+		})
+	}
+	t.Run("neither set", func(t *testing.T) {
+		deps, _, _ := newDeps(true, nil)
+		var out, errb bytes.Buffer
+		if rc := runUpdateWith(nil, deps, noEnv, &out, &errb); rc != update.ExitInvalid {
+			t.Fatalf("rc=%d want 2", rc)
+		}
+	})
+	t.Run("missing file names the path", func(t *testing.T) {
+		empty := t.TempDir()
+		deps, _, _ := newDeps(true, nil)
+		var out, errb bytes.Buffer
+		rc := runUpdateWith(nil, deps, envOf(map[string]string{"XDG_CONFIG_HOME": empty}), &out, &errb)
+		want := filepath.Join(empty, update.DefaultValuesRel)
+		if rc != update.ExitInvalid || !strings.Contains(errb.String(), want) {
+			t.Fatalf("rc=%d stderr=%s, want 2 naming %s", rc, errb.String(), want)
+		}
+	})
+	t.Run("unsafe default file", func(t *testing.T) {
+		root := t.TempDir()
+		installDefault(t, root, 0o666)
+		deps, _, _ := newDeps(true, nil)
+		var out, errb bytes.Buffer
+		if rc := runUpdateWith(nil, deps, envOf(map[string]string{"XDG_CONFIG_HOME": root}), &out, &errb); rc != update.ExitInvalid {
+			t.Fatalf("rc=%d want 2", rc)
+		}
+	})
+}
+
+func TestUpdatePrintsExplicitValuesSource(t *testing.T) {
+	vp := writeValues(t, updateValues)
+	deps, _, _ := newDeps(true, nil)
+	var out, errb bytes.Buffer
+	if rc := runUpdateWith([]string{"--values", vp}, deps, noEnv, &out, &errb); rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errb.String())
+	}
+	if want := "values: " + vp + " (explicit)\n"; !strings.HasPrefix(out.String(), want) {
+		t.Fatalf("stdout %q does not start with %q", out.String(), want)
+	}
+}
+
+func TestExplicitValuesFileChecks(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.yaml")
+	if err := os.WriteFile(real, []byte(updateValues), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.yaml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	gw := filepath.Join(dir, "gw.yaml")
+	if err := os.WriteFile(gw, []byte(updateValues), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(gw, 0o620); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{link, gw} {
+		deps, _, _ := newDeps(true, nil)
+		var out, errb bytes.Buffer
+		rc := runUpdateWith([]string{"--values", p}, deps, noEnv, &out, &errb)
+		if rc != update.ExitInvalid || !strings.Contains(errb.String(), p) {
+			t.Fatalf("%s: rc=%d stderr=%s", p, rc, errb.String())
+		}
+	}
+}
+
 func TestDispatchRoutesSubcommands(t *testing.T) {
-	// "update" with no --values reaches the update handler and returns its
-	// invalid-input code without touching the host.
+	// An empty config root keeps the real default values file, if this host
+	// has one, out of the test.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// "update" with no --values reaches the update handler, finds no default
+	// values file, and returns its invalid-input code without touching the host.
 	if rc, handled := dispatch([]string{"update"}); !handled || rc != update.ExitInvalid {
 		t.Fatalf("update: rc=%d handled=%v, want rc=%d handled=true", rc, handled, update.ExitInvalid)
 	}
@@ -338,7 +452,7 @@ func TestSourceFailureExitCodesLeaveHostUntouched(t *testing.T) {
 			deps, f, sd := newDeps(true, nil)
 			deps.Source = cmdSource{c.err}
 			var out, errb bytes.Buffer
-			if rc := runUpdateWith([]string{"--values", vp}, deps, &out, &errb); rc != c.want {
+			if rc := runUpdateWith([]string{"--values", vp}, deps, noEnv, &out, &errb); rc != c.want {
 				t.Fatalf("rc=%d want %d stderr=%s", rc, c.want, errb.String())
 			}
 			if len(f.files) != 0 || len(sd.calls) != 0 || strings.Contains(out.String(), "changed:") {

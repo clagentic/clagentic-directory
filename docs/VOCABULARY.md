@@ -15,6 +15,9 @@ When `--vocab-file` is omitted, the store starts in ValidateOpen mode: all vocab
 values are accepted without checking. ValidateOpen is intended for bootstrapping new
 deployments and should not be used in production.
 
+In git mode (`--registry-source=git`) use `--registry-git-vocab <path-in-repo>` instead;
+`--vocab-file` is rejected there. The file is read from each synced clone.
+
 See `examples/vocabulary.v1.yaml` for a ready-to-use canonical vocabulary file.
 
 ## Adding a new vocabulary item

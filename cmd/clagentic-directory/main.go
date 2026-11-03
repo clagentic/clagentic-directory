@@ -147,7 +147,7 @@ func main() {
 	var (
 		registrySource     = flag.String("registry-source", "", "Backend type: file|git (required)")
 		registryDir        = flag.String("registry-dir", "", "Directory containing agent YAML files (when source=file)")
-		vocabFile          = flag.String("vocab-file", "", "Path to a vocabulary.v1.yaml file for schema_version: 2 validation (recommended; omit to run in ValidateOpen mode)")
+		vocabFile          = flag.String("vocab-file", "", "Path to a vocabulary.v1.yaml file for schema_version: 2 validation (file mode only; recommended; omit to run in ValidateOpen mode)")
 		vocabularyExt      = flag.String("vocabulary-extensions", "", "[Deprecated: use --vocab-file] Path to a YAML file of additional vocabulary values to merge into base enums")
 		registryGitURL     = flag.String("registry-git-url", "", "Git repo URL (when source=git)")
 		registryGitRef     = flag.String("registry-git-ref", "main", "Git ref to track (when source=git)")
@@ -200,9 +200,14 @@ func main() {
 		slog.Info("clagentic-directory starting", "revision", "embedded-vcs-or-unknown")
 	}
 
-	// Warn loudly when neither --vocab-file nor --vocabulary-extensions is set.
-	// The store will start in ValidateOpen mode, meaning any vocabulary value is accepted.
-	if *vocabFile == "" && *vocabularyExt == "" {
+	if err := checkVocabFlags(*registrySource, *vocabFile, *registryGitVocab); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Only file mode warns here: git mode logs its effective validation mode
+	// from the store on every successful load.
+	if fileModeOpen(*registrySource, *vocabFile, *vocabularyExt) {
 		slog.Warn("no --vocab-file provided; starting in ValidateOpen mode (UNSAFE) — schema_version: 2 vocabulary values are not validated and any value is accepted. Pass --vocab-file to enable strict checking.")
 	}
 

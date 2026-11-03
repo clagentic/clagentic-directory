@@ -30,9 +30,10 @@ type Prober interface {
 	Ready(url, token string) error
 }
 
-// Builder compiles pkg from srcDir into outPath.
+// Builder compiles pkg from srcDir into outPath, stamping revision (the
+// resolved source commit) into the binary.
 type Builder interface {
-	Build(srcDir, pkg, outPath string) error
+	Build(srcDir, pkg, outPath, revision string) error
 }
 
 // Source produces a private export of reviewed source. It never reads or

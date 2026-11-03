@@ -125,10 +125,13 @@ type fakeBuilder struct {
 	err     error
 	built   int
 	srcDirs []string
+	// revisions records the revision stamped into each build.
+	revisions []string
 }
 
-func (b *fakeBuilder) Build(src, _, out string) error {
+func (b *fakeBuilder) Build(src, _, out, revision string) error {
 	b.built++
+	b.revisions = append(b.revisions, revision)
 	b.srcDirs = append(b.srcDirs, src)
 	if b.err != nil {
 		return b.err

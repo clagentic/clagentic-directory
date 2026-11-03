@@ -36,10 +36,16 @@ supersedes:
   - sync.service
 `
 
+// newerCommit is a resolved commit different from the rig's default.
+const newerCommit = "fedcba9876543210fedcba9876543210fedcba98"
+
 // seedConverged makes the rig look like a host already converged to v.
 func seedConverged(r *rig, v *Values) {
 	r.fs.files[v.UnitPath()] = v.RenderUnit()
 	r.fs.files[v.Binary.InstallPath] = []byte(r.bd.content)
+	r.fs.files[v.Binary.InstallPath+recordSuffix] = installRecord{
+		Commit: r.sc.commit, Package: v.Package(), SHA256: digest([]byte(r.bd.content)),
+	}.render()
 	r.sd.active[v.UnitName()] = true
 	r.sd.enabled[v.UnitName()] = true
 }
@@ -66,7 +72,7 @@ func TestConvergedHostIsNoOp(t *testing.T) {
 	if len(r.sd.calls) != 0 || len(r.fs.log) != 0 {
 		t.Fatalf("no-op run mutated host: systemd=%v fs=%v", r.sd.calls, r.fs.log)
 	}
-	if got := r.fs.paths(); len(got) != 2 {
+	if got := r.fs.paths(); len(got) != 3 {
 		t.Fatalf("staged file left behind: %v", got)
 	}
 }
@@ -115,6 +121,7 @@ func TestChangedBinaryRestartsWithoutReload(t *testing.T) {
 	r := newRig()
 	seedConverged(r, v)
 	r.bd.content = "binary-v2"
+	r.sc.commit = newerCommit
 	res, err := Converge(r.d, v)
 	if err != nil {
 		t.Fatal(err)
@@ -211,8 +218,10 @@ func TestStepOrder(t *testing.T) {
 	if got := strings.Join(r.sd.calls, ","); got != want {
 		t.Fatalf("order = %s", got)
 	}
-	// unit written before the binary is renamed into place
-	if len(r.fs.log) != 2 || !strings.HasPrefix(r.fs.log[0], "write /units/") || !strings.HasPrefix(r.fs.log[1], "rename") {
+	// unit written before the binary is renamed into place; the install record
+	// goes last so a crash before it leaves a record that forces a rebuild.
+	if len(r.fs.log) != 3 || !strings.HasPrefix(r.fs.log[0], "write /units/") || !strings.HasPrefix(r.fs.log[1], "rename") ||
+		r.fs.log[2] != "write /bin/clagentic-directory.source" {
 		t.Fatalf("fs order = %v", r.fs.log)
 	}
 }
@@ -258,6 +267,7 @@ func TestBuildFailureLeavesHostUntouched(t *testing.T) {
 	r := newRig()
 	seedConverged(r, v)
 	r.fs.files[v.UnitPath()] = []byte("stale unit") // would be rewritten if the build had not failed first
+	r.sc.commit = newerCommit
 	r.bd.err = errors.New("compile error")
 	_, err := Converge(r.d, v)
 	if code(err) != ExitApply {
@@ -278,6 +288,7 @@ func TestApplyFailureReportsPartialChanges(t *testing.T) {
 	r.sd.active["sync.timer"], r.sd.enabled["sync.timer"] = true, true
 	r.sd.failOn = "disable sync.timer"
 	r.bd.content = "binary-v2"
+	r.sc.commit = newerCommit
 	res, err := Converge(r.d, v)
 	if code(err) != ExitApply {
 		t.Fatalf("code = %d", code(err))
@@ -483,5 +494,142 @@ func TestFileOriginFallbackExitsApplyWithoutHostWrites(t *testing.T) {
 	if gitCalls != 1 || r.bd.built != 0 || len(r.fs.log) != 0 || len(r.sd.calls) != 0 ||
 		strings.Join(r.fs.paths(), ",") != strings.Join(before, ",") {
 		t.Fatalf("git=%d built=%d fs=%v systemd=%v", gitCalls, r.bd.built, r.fs.log, r.sd.calls)
+	}
+}
+
+func TestSecondRunSameCommitDoesNotRebuildOrRestart(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	if r.bd.built != 1 || len(r.bd.revisions) != 1 || r.bd.revisions[0] != r.sc.commit {
+		t.Fatalf("first run builds=%d revisions=%v, want one build stamped with %s", r.bd.built, r.bd.revisions, r.sc.commit)
+	}
+	r.sd.calls = nil
+	r.fs.log = nil
+	// A rebuild from a fresh export would not be byte-identical.
+	r.bd.content = "binary-v1-different-bytes"
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Changed() || res.Built {
+		t.Fatalf("second run changed the host: %+v", res)
+	}
+	if r.bd.built != 1 {
+		t.Fatalf("rebuilt an installed commit: builds=%d", r.bd.built)
+	}
+	if len(r.sd.calls) != 0 || len(r.fs.log) != 0 {
+		t.Fatalf("second run mutated host: systemd=%v fs=%v", r.sd.calls, r.fs.log)
+	}
+	if string(r.fs.files[v.Binary.InstallPath]) != "binary-v1" {
+		t.Fatal("installed binary replaced")
+	}
+}
+
+func TestChangedCommitRebuildsAndRestarts(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	r.sd.calls = nil
+	r.sc.commit = newerCommit
+	r.bd.content = "binary-v2"
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Built || !res.BinaryChanged || !res.Restarted {
+		t.Fatalf("unexpected result %+v", res)
+	}
+	if got := strings.Join(r.sd.calls, ","); got != "restart clagentic-directory.service" {
+		t.Fatalf("calls = %s", got)
+	}
+	if r.bd.revisions[len(r.bd.revisions)-1] != r.sc.commit {
+		t.Fatalf("revisions = %v", r.bd.revisions)
+	}
+	// The new commit is now the recorded one.
+	r.sd.calls = nil
+	if res, err := Converge(r.d, v); err != nil || res.Changed() || res.Built {
+		t.Fatalf("not converged after upgrade: %+v %v", res, err)
+	}
+}
+
+func TestChangedUnitSameCommitUpdatesUnitWithoutRebuild(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	r.sd.calls = nil
+	r.fs.files[v.UnitPath()] = []byte("stale unit")
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.UnitChanged || res.BinaryChanged || res.Built || !res.Restarted {
+		t.Fatalf("unexpected result %+v", res)
+	}
+	if r.bd.built != 1 {
+		t.Fatalf("rebuilt for a unit-only change: builds=%d", r.bd.built)
+	}
+	if got := strings.Join(r.sd.calls, ","); got != "daemon-reload,restart clagentic-directory.service" {
+		t.Fatalf("calls = %s", got)
+	}
+}
+
+func TestSwappedBinaryIsRebuiltDespiteMatchingRecord(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	seedConverged(r, v)
+	r.fs.files[v.Binary.InstallPath] = []byte("not what update installed")
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Built || !res.BinaryChanged || !res.Restarted {
+		t.Fatalf("unexpected result %+v", res)
+	}
+	if string(r.fs.files[v.Binary.InstallPath]) != "binary-v1" {
+		t.Fatal("swapped binary not replaced")
+	}
+}
+
+func TestChangedPackageSameCommitRebuilds(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	if _, err := Converge(r.d, v); err != nil {
+		t.Fatal(err)
+	}
+	v.Binary.Package = "./cmd/other"
+	r.bd.content = "binary-other"
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Built || !res.BinaryChanged {
+		t.Fatalf("unexpected result %+v", res)
+	}
+}
+
+func TestInstallWithoutRecordRebuildsAndRecordsWithoutRestartWhenBytesMatch(t *testing.T) {
+	v := testValues(t)
+	r := newRig()
+	seedConverged(r, v)
+	delete(r.fs.files, v.Binary.InstallPath+recordSuffix)
+	res, err := Converge(r.d, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Built || res.BinaryChanged || res.Restarted {
+		t.Fatalf("unexpected result %+v", res)
+	}
+	if _, ok := r.fs.files[v.Binary.InstallPath+recordSuffix]; !ok {
+		t.Fatal("record not written")
+	}
+	if res2, err := Converge(r.d, v); err != nil || res2.Built {
+		t.Fatalf("second run rebuilt: %+v %v", res2, err)
 	}
 }

@@ -2,7 +2,6 @@ package update
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -38,6 +37,9 @@ func fail(code int, format string, a ...any) *Failure {
 type Result struct {
 	UnitChanged   bool
 	BinaryChanged bool
+	// Built reports whether the binary was compiled this run. False when the
+	// installed binary already was the build of Commit.
+	Built bool
 	// Commit is the source commit the binary was built from; empty when the
 	// run failed before the source was exported.
 	Commit    string
@@ -57,7 +59,8 @@ func (r Result) Changed() bool {
 const stageSuffix = ".update-new"
 
 // Converge brings the host in line with v. Order: validate, privilege check,
-// export the reviewed source, stage the binary build (not live), unit, daemon-reload, binary swap,
+// export the reviewed source, stage the binary build (not live) unless the
+// installed binary is already that commit's build, unit, daemon-reload, binary swap,
 // superseded units, enable, restart when needed, readiness.
 func Converge(d Deps, v *Values) (res Result, err error) {
 	if verr := v.Validate(); verr != nil {
@@ -98,29 +101,46 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 	defer exp.Cleanup()
 	res.Commit = exp.Commit
 
-	// Build into a staged path first so a build failure leaves the host
-	// untouched. The staged file sits beside the install path so the final
-	// rename stays on one filesystem.
+	// A build is skipped when the installed binary is already the build of
+	// this commit (see installRecord.current). Builds from separate exports
+	// are not byte-identical in general, so bytes alone cannot decide.
 	install := v.Binary.InstallPath
-	staged := install + stageSuffix
-	if berr := d.Builder.Build(exp.Dir, v.Package(), staged); berr != nil {
-		_ = d.FS.Remove(staged)
-		return res, fail(ExitApply, "build: %v", berr)
-	}
-	defer func() {
-		if rmErr := d.FS.Remove(staged); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) && err == nil {
-			err = fail(ExitApply, "remove staged binary %s: %v", staged, rmErr)
-		}
-	}()
-	newBin, rerr := d.FS.ReadFile(staged)
-	if rerr != nil {
-		return res, fail(ExitApply, "read staged binary: %v", rerr)
-	}
+	recordPath := install + recordSuffix
+	want := installRecord{Commit: exp.Commit, Package: v.Package()}
 	oldBin, rerr := d.FS.ReadFile(install)
 	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		return res, fail(ExitApply, "read installed binary %s: %v", install, rerr)
 	}
-	binaryChanged := rerr != nil || sha256.Sum256(oldBin) != sha256.Sum256(newBin)
+	installed := rerr == nil
+	rec, rerr := readInstallRecord(d, recordPath)
+	if rerr != nil {
+		return res, fail(ExitApply, "read install record %s: %v", recordPath, rerr)
+	}
+
+	binaryChanged := false
+	var newBin []byte
+	staged := install + stageSuffix
+	if !(installed && rec.current(want, oldBin)) {
+		// Build into a staged path first so a build failure leaves the host
+		// untouched. The staged file sits beside the install path so the
+		// final rename stays on one filesystem.
+		if berr := d.Builder.Build(exp.Dir, v.Package(), staged, exp.Commit); berr != nil {
+			_ = d.FS.Remove(staged)
+			return res, fail(ExitApply, "build: %v", berr)
+		}
+		defer func() {
+			if rmErr := d.FS.Remove(staged); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) && err == nil {
+				err = fail(ExitApply, "remove staged binary %s: %v", staged, rmErr)
+			}
+		}()
+		var serr error
+		newBin, serr = d.FS.ReadFile(staged)
+		if serr != nil {
+			return res, fail(ExitApply, "read staged binary: %v", serr)
+		}
+		binaryChanged = !installed || digest(oldBin) != digest(newBin)
+		res.Built = true
+	}
 
 	if unitChanged {
 		if werr := d.FS.WriteAtomic(unitPath, unitText, 0o644); werr != nil {
@@ -137,6 +157,15 @@ func Converge(d Deps, v *Values) (res Result, err error) {
 			return res, fail(ExitApply, "install binary %s: %v", install, merr)
 		}
 		res.BinaryChanged = true
+	}
+	if res.Built {
+		want.SHA256 = digest(newBin)
+		if !binaryChanged {
+			want.SHA256 = digest(oldBin)
+		}
+		if werr := d.FS.WriteAtomic(recordPath, want.render(), 0o644); werr != nil {
+			return res, fail(ExitApply, "write install record %s: %v", recordPath, werr)
+		}
 	}
 
 	own := v.UnitName()

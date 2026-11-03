@@ -13,21 +13,31 @@ import (
 // root (clagentic CLI naming standard: <config root>/clagentic/directory/).
 var DefaultValuesRel = filepath.Join("clagentic", "directory", "update-values.yaml")
 
-// DefaultValuesPath resolves the values file used when --values is omitted:
-// $XDG_CONFIG_HOME, else $HOME/.config, joined with DefaultValuesRel. It is
-// os.UserConfigDir's rule with an injectable environment; there is no other
-// fallback. A relative or unset root is an error rather than a guess.
-func DefaultValuesPath(getenv func(string) string) (string, error) {
+// ConfigRoot resolves the user config root: $XDG_CONFIG_HOME, else
+// $HOME/.config. It is os.UserConfigDir's rule with an injectable environment;
+// there is no other fallback. A relative or unset root is an error rather than
+// a guess.
+func ConfigRoot(getenv func(string) string) (string, error) {
 	root := getenv("XDG_CONFIG_HOME")
 	if root == "" {
 		home := getenv("HOME")
 		if home == "" {
-			return "", errors.New("cannot resolve default values path: neither $XDG_CONFIG_HOME nor $HOME is set")
+			return "", errors.New("cannot resolve config root: neither $XDG_CONFIG_HOME nor $HOME is set")
 		}
 		root = filepath.Join(home, ".config")
 	}
 	if !filepath.IsAbs(root) {
-		return "", fmt.Errorf("cannot resolve default values path: config root %q is not absolute", root)
+		return "", fmt.Errorf("cannot resolve config root: %q is not absolute", root)
+	}
+	return root, nil
+}
+
+// DefaultValuesPath resolves the values file used when --values is omitted:
+// the config root joined with DefaultValuesRel.
+func DefaultValuesPath(getenv func(string) string) (string, error) {
+	root, err := ConfigRoot(getenv)
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(root, DefaultValuesRel), nil
 }

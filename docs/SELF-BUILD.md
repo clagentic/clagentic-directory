@@ -254,8 +254,13 @@ clagentic-directory inspect \
 Flags:
 - `--agent` (required): agent name to record in the proposed entry
 - `--mcp-url` (required): MCP server endpoint to introspect
-- `--config`: path to config file (default: `~/.config/clagentic/directory.yaml`)
+- `--config`: path to config file (default: `$XDG_CONFIG_HOME/clagentic/directory/directory.yaml`, or `$HOME/.config/clagentic/directory/directory.yaml` when `XDG_CONFIG_HOME` is unset)
 - `--output-dir`: root for proposed_changes/ output (default: from config, or `./proposed_changes`)
+
+Migration: earlier versions read `$HOME/.config/clagentic/directory.yaml`
+(`HOME` only, regardless of `XDG_CONFIG_HOME`).
+If that file exists and the new default does not, `inspect` exits 1 naming both
+paths and never reads the old file. Move it to the new path (or pass `--config`).
 
 On success, prints the absolute path of the written YAML file to stdout
 and exits 0. On failure, prints to stderr and exits non-zero.

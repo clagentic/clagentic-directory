@@ -242,8 +242,8 @@ func TestDefaultInspectConfigPath(t *testing.T) {
 		}
 	}
 
-	env := envMap(map[string]string{"XDG_CONFIG_HOME": "/x"})
-	newP, oldP := "/x/clagentic/directory/directory.yaml", "/x/clagentic/directory.yaml"
+	env := envMap(map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"})
+	newP, oldP := "/x/clagentic/directory/directory.yaml", "/h/.config/clagentic/directory.yaml"
 	only := func(paths ...string) func(string) bool {
 		return func(p string) bool {
 			for _, q := range paths {
@@ -256,6 +256,9 @@ func TestDefaultInspectConfigPath(t *testing.T) {
 	}
 	if _, err := defaultInspectConfigPath(env, only(oldP)); err == nil || !strings.Contains(err.Error(), newP) || !strings.Contains(err.Error(), oldP) {
 		t.Fatalf("legacy only: err=%v, want it to name both paths", err)
+	}
+	if got, err := defaultInspectConfigPath(envMap(map[string]string{"XDG_CONFIG_HOME": "/x"}), only("/x/clagentic/directory.yaml")); err != nil || got != newP {
+		t.Fatalf("HOME unset must skip legacy check: got %q, %v", got, err)
 	}
 	if got, err := defaultInspectConfigPath(env, only(oldP, newP)); err != nil || got != newP {
 		t.Fatalf("both present: got %q, %v", got, err)
@@ -290,8 +293,8 @@ func TestInspectDefaultConfigFlow(t *testing.T) {
 	args := []string{"--agent", "a", "--mcp-url", srv.URL}
 
 	t.Run("legacy only exits 1", func(t *testing.T) {
-		root, work := setup(t)
-		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		_, work := setup(t)
+		write(t, filepath.Join(os.Getenv("HOME"), ".config", "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
 		if code := runInspect(args); code != 1 {
 			t.Fatalf("code=%d want 1", code)
 		}
@@ -301,7 +304,7 @@ func TestInspectDefaultConfigFlow(t *testing.T) {
 	})
 	t.Run("both present reads new", func(t *testing.T) {
 		root, work := setup(t)
-		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		write(t, filepath.Join(os.Getenv("HOME"), ".config", "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
 		write(t, filepath.Join(root, "clagentic", "directory", "directory.yaml"), filepath.Join(work, "fresh"))
 		if code := runInspect(args); code != 0 {
 			t.Fatalf("code=%d want 0", code)
@@ -323,8 +326,8 @@ func TestInspectDefaultConfigFlow(t *testing.T) {
 		}
 	})
 	t.Run("explicit config ignores legacy check", func(t *testing.T) {
-		root, work := setup(t)
-		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		_, work := setup(t)
+		write(t, filepath.Join(os.Getenv("HOME"), ".config", "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
 		explicit := filepath.Join(work, "explicit.yaml")
 		write(t, explicit, filepath.Join(work, "chosen"))
 		if code := runInspect(append([]string{"--config", explicit}, args...)); code != 0 {

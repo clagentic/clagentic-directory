@@ -257,7 +257,8 @@ Flags:
 - `--config`: path to config file (default: `$XDG_CONFIG_HOME/clagentic/directory/directory.yaml`, or `$HOME/.config/clagentic/directory/directory.yaml` when `XDG_CONFIG_HOME` is unset)
 - `--output-dir`: root for proposed_changes/ output (default: from config, or `./proposed_changes`)
 
-Migration: earlier versions defaulted to `~/.config/clagentic/directory.yaml`.
+Migration: earlier versions read `$HOME/.config/clagentic/directory.yaml`
+(`HOME` only, regardless of `XDG_CONFIG_HOME`).
 If that file exists and the new default does not, `inspect` exits 1 naming both
 paths and never reads the old file. Move it to the new path (or pass `--config`).
 

@@ -80,19 +80,23 @@ func fileExists(path string) bool {
 }
 
 // defaultInspectConfigPath resolves the config file used when --config is
-// omitted: <config root>/clagentic/directory/directory.yaml. The older
-// <config root>/clagentic/directory.yaml is never read; when only it exists the
+// omitted: <config root>/clagentic/directory/directory.yaml. The legacy file is
+// the exact path the old binary read, $HOME/.config/clagentic/directory.yaml
+// (HOME only, never XDG_CONFIG_HOME). It is never read; when only it exists the
 // operator gets an error naming both paths, so a moved default cannot silently
-// drop their settings (loadConfig treats a missing file as no config).
+// drop their settings (loadConfig treats a missing file as no config). With HOME
+// unset there is no legacy check.
 func defaultInspectConfigPath(getenv func(string) string, exists func(string) bool) (string, error) {
 	root, err := update.ConfigRoot(getenv)
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(root, "clagentic", "directory", "directory.yaml")
-	legacy := filepath.Join(root, "clagentic", "directory.yaml")
-	if !exists(path) && exists(legacy) {
-		return "", fmt.Errorf("config file found at legacy path %s but the default is now %s; move the file to the new path (or pass --config %s)", legacy, path, legacy)
+	if home := getenv("HOME"); home != "" && !exists(path) {
+		legacy := filepath.Join(home, ".config", "clagentic", "directory.yaml")
+		if exists(legacy) {
+			return "", fmt.Errorf("config file found at legacy path %s but the default is now %s; move the file to the new path (or pass --config %s)", legacy, path, legacy)
+		}
 	}
 	return path, nil
 }

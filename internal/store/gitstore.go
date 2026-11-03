@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,11 @@ import (
 	"sync"
 	"time"
 )
+
+// DefaultGitTimeout bounds each git subprocess (clone, fetch, reset, config
+// read) when GitStoreConfig.GitTimeout is zero. A hung fetch would otherwise
+// never record a failure and /readyz would stay 200 on a stale registry.
+const DefaultGitTimeout = 2 * time.Minute
 
 // GitStore implements Store by cloning a git repo and polling for changes.
 // When a VocabularyPath is configured, the vocabulary file is re-read on every
@@ -21,6 +27,11 @@ type GitStore struct {
 	subpath  string
 	keyFile  string
 	poll     time.Duration
+	// gitTimeout bounds every git subprocess; see DefaultGitTimeout.
+	gitTimeout time.Duration
+	// ctx is cancelled by Close so an in-flight git call does not block shutdown.
+	ctx    context.Context
+	cancel context.CancelFunc
 	// vocabPath is the path within the cloned repo to the vocabulary file.
 	// Empty means ValidateOpen.
 	vocabPath string
@@ -45,6 +56,9 @@ type GitStoreConfig struct {
 	Subpath  string        // subdirectory within repo for registry files
 	KeyFile  string        // SSH deploy key or HTTPS token file (optional)
 	Poll     time.Duration // default: 60s
+	// GitTimeout bounds each git subprocess; default DefaultGitTimeout. A
+	// timeout counts as a failed sync.
+	GitTimeout time.Duration
 	// VocabularyPath is the path within the cloned repo to a vocabulary.v1.yaml
 	// file. When set, schema_version: 2 entries are validated against it.
 	// When empty, vocabulary checking is skipped (ValidateOpen).
@@ -63,16 +77,23 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 	if cfg.Poll == 0 {
 		cfg.Poll = 60 * time.Second
 	}
+	if cfg.GitTimeout == 0 {
+		cfg.GitTimeout = DefaultGitTimeout
+	}
+	ctx, cancel := context.WithCancel(context.Background())
 	gs := &GitStore{
-		url:       cfg.URL,
-		ref:       cfg.Ref,
-		cacheDir:  cfg.CacheDir,
-		subpath:   cfg.Subpath,
-		keyFile:   cfg.KeyFile,
-		poll:      cfg.Poll,
-		vocabPath: cfg.VocabularyPath,
-		done:      make(chan struct{}),
-		loopDone:  make(chan struct{}),
+		gitTimeout: cfg.GitTimeout,
+		ctx:        ctx,
+		cancel:     cancel,
+		url:        cfg.URL,
+		ref:        cfg.Ref,
+		cacheDir:   cfg.CacheDir,
+		subpath:    cfg.Subpath,
+		keyFile:    cfg.KeyFile,
+		poll:       cfg.Poll,
+		vocabPath:  cfg.VocabularyPath,
+		done:       make(chan struct{}),
+		loopDone:   make(chan struct{}),
 	}
 
 	repoDir := gs.repoDir()
@@ -80,9 +101,11 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
 		freshClone = true
 		if err := os.MkdirAll(filepath.Dir(repoDir), 0700); err != nil {
+			cancel()
 			return nil, fmt.Errorf("creating cache dir: %w", err)
 		}
 		if err := gs.runGit("", "clone", "--depth=1", "--branch", cfg.Ref, cfg.URL, repoDir); err != nil {
+			cancel()
 			return nil, fmt.Errorf("git clone: %w", err)
 		}
 	}
@@ -99,11 +122,13 @@ func NewGitStore(cfg GitStoreConfig) (*GitStore, error) {
 
 	vocab, mode, err := gs.loadVocab(cfg.Ext)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	gs.mode = mode
 
 	if err := gs.reload(vocab); err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -155,7 +180,11 @@ func (g *GitStore) registryDir() string {
 }
 
 func (g *GitStore) runGit(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(g.ctx, g.gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	// Bound the wait for output pipes if a killed git left a child holding them.
+	cmd.WaitDelay = time.Second
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -172,6 +201,9 @@ func (g *GitStore) runGit(dir string, args ...string) error {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git %s: timed out after %s", gitSubcommand(args), g.gitTimeout)
+		}
 		return fmt.Errorf("git %s: %w\n%s", gitSubcommand(args), err, out)
 	}
 	return nil
@@ -297,10 +329,16 @@ func (g *GitStore) fetch() error {
 // validateRemoteURL reads remote.origin.url from .git/config and compares it
 // against the configured URL. Returns an error if they differ.
 func (g *GitStore) validateRemoteURL(repoDir string) error {
-	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	ctx, cancel := context.WithTimeout(g.ctx, g.gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
 	cmd.Dir = repoDir
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("reading remote.origin.url: timed out after %s", g.gitTimeout)
+		}
 		return fmt.Errorf("reading remote.origin.url: %w", err)
 	}
 	got := strings.TrimSpace(string(out))
@@ -310,9 +348,11 @@ func (g *GitStore) validateRemoteURL(repoDir string) error {
 	return nil
 }
 
-// Close stops the poll loop and waits for any in-flight fetch to finish.
+// Close stops the poll loop, cancels any in-flight git call, and waits for the
+// loop to exit, so shutdown is bounded.
 func (g *GitStore) Close() error {
 	close(g.done)
+	g.cancel()
 	<-g.loopDone
 	return nil
 }

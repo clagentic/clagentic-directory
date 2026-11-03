@@ -50,6 +50,8 @@ Use `--registry-source git --registry-git-url <url>` to activate.
 
 `/v1/find` bounds each of `intent`, `conversation_kind` and `after_agent` to 256 bytes and 32 post-tokenization terms (`store.MaxFindQueryBytes`, `store.MaxFindQueryTerms`; derivation in `internal/store/querylimits.go`). Over-limit input is rejected before any lookup with HTTP 400 and a JSON body `{"error": ..., "param": ..., "limit": ..., "unit": "bytes"|"terms"}`; it is never truncated.
 
+In git mode every git subprocess (clone, fetch, reset, the `remote.origin.url` read) runs under a bounded timeout, `store.DefaultGitTimeout` (2 minutes, overridable with `GitStoreConfig.GitTimeout`). A timeout counts as a failed sync, so a hung fetch (stalled network, blocked ssh) increments `sync.consecutive_failures` and trips the `registry stale` threshold above like any other fetch failure. `Close()` cancels the in-flight git call, so shutdown is not held up by a hung fetch.
+
 All responses are `application/json`. No authentication at the API layer in the current release (see `docs/SECURITY.md`).
 
 ## Go client

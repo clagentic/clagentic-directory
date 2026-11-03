@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -226,4 +227,62 @@ func TestGitStorePollLoopRecordsFailures(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("poll loop failures were not recorded in SyncStatus")
+}
+
+// hangingGitOnPath puts a fake git first on PATH that blocks, standing in for a
+// stalled network or blocked ssh. Call after the origin and clone are set up.
+func hangingGitOnPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nexec sleep 60\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestGitStoreHangingFetchTimesOutAndCountsFailure(t *testing.T) {
+	bare, _ := newOrigin(t)
+	gs, err := NewGitStore(GitStoreConfig{
+		URL: "file://" + bare, Ref: "main", CacheDir: t.TempDir(),
+		Poll: time.Hour, GitTimeout: 300 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gs.Close() })
+	hangingGitOnPath(t)
+
+	start := time.Now()
+	if gs.syncOnce("test") {
+		t.Fatal("hanging fetch reported success")
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("fetch not bounded: took %s", d)
+	}
+	st := gs.SyncStatus()
+	if st.ConsecutiveFailures != 1 || !strings.Contains(st.LastError, "timed out") {
+		t.Fatalf("timeout not recorded as failed sync: %+v", st)
+	}
+}
+
+func TestGitStoreCloseCancelsInFlightGit(t *testing.T) {
+	bare, _ := newOrigin(t)
+	gs, err := NewGitStore(GitStoreConfig{
+		URL: "file://" + bare, Ref: "main", CacheDir: t.TempDir(),
+		Poll: 20 * time.Millisecond, GitTimeout: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hangingGitOnPath(t)
+	time.Sleep(200 * time.Millisecond) // let the poll loop enter the hung fetch
+
+	closed := make(chan struct{})
+	go func() { _ = gs.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close blocked on a hung git call")
+	}
 }

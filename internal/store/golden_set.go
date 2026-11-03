@@ -91,8 +91,8 @@ var goldenSet = []goldenCase{
 	{query: "ask codex for a second opinion", wantAny: []string{"codex"}, note: "NL phrasing"},
 
 	// drummer (platform observer)
-	{query: "probe", wantAny: []string{"drummer", "roci", "test-agent"}, note: "shared exact intent across 3 agents"},
-	{query: "wiring-test", wantAny: []string{"drummer", "roci", "test-agent"}, note: "shared exact intent"},
+	{query: "probe", wantAny: []string{"drummer", "test-agent"}, note: "shared exact intent across 2 agents"},
+	{query: "wiring-test", wantAny: []string{"drummer", "test-agent"}, note: "shared exact intent"},
 	{query: "run a platform health check", wantAny: []string{"drummer"}, note: "NL phrasing, description-only match (BM25 target)"},
 
 	// gemini-researcher
@@ -137,12 +137,13 @@ var goldenSet = []goldenCase{
 	{query: "what does reddit think", wantAny: []string{"reddit-researcher"}, note: "NL phrasing, description-only match"},
 	{query: "community-sentiment", wantAny: []string{"reddit-researcher", "prax"}, note: "shared exact intent"},
 
-	// roci (agent builder)
-	{query: "scaffold a new agent", wantAny: []string{"roci"}, note: "NL phrasing, description-only match"},
-	{query: "create an agent definition", wantAny: []string{"roci"}, note: "NL phrasing, description-only match"},
+	// roci (program coordinator)
+	{query: "escalation", wantAny: []string{"roci"}, note: "exact tier (escalation intent on the deviation-queue capability)"},
+	{query: "keep the order of work between project lanes logical", wantAny: []string{"roci"}, note: "NL phrasing, BM25 tier (description and order-check capability text)"},
+	{query: "decide if a lane proposal is on plan or a deviation", wantAny: []string{"roci"}, note: "NL phrasing, BM25 tier (description and deviation-queue capability text)"},
 
 	// test-agent
-	{query: "wiring probe", wantAny: []string{"test-agent", "drummer", "roci"}, note: "NL phrasing normalizes toward wiring-test-adjacent term, shared across agents"},
+	{query: "wiring probe", wantAny: []string{"test-agent", "drummer"}, note: "NL phrasing normalizes toward wiring-test-adjacent term, shared across agents"},
 
 	// tiamut (intelligence harvester)
 	{query: "inspect-repo", wantAny: []string{"tiamut"}, note: "exact tier"},

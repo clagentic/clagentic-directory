@@ -190,15 +190,15 @@ func goldenFixtureAgents() map[string]Agent {
 		},
 		{
 			Name:        "roci",
-			Description: "Agent builder (crew-manifest Layer 2). Rapidly Orchestrates Configured Identities — scaffolds new agent definitions, schemas, and identity entries when authorized by an operator. Writes to agent-definition paths only (agents/** scope). Never self-dispatches and never modifies platform code. Lifecycle: planned (no agent file yet).",
-			Role:        "builder",
-			TrustLabels: []string{"trusted", "autonomous", "lore-writer"},
-			Capabilities: []Capability{{
-				ID:          "scaffold-agent",
-				Name:        "Scaffold Agent Definition",
-				Description: "Creates or updates agent definition files (plugins/crew-manifest/agents/<name>.md, input-schema.json, output-schema.json) for a named crew member. Validates naming conventions, frontmatter required fields, and I/O schema rules. Produces a PR on a feature branch for NAOMI to merge.",
-				Triggers:    Triggers{Intents: []string{"wiring-test", "probe"}},
-			}},
+			Description: "Program-level coordinator (Retains Overall Course Integrity). Keeps the big picture across projects, owns the plan of record and the deviation queue, and keeps the order of work between the per-project HOLDEN lanes logical. Judges each lane proposal as on-plan or a deviation that goes to the operator; never rules on project-level design. Dispatches only AVASARALA and PRAX.",
+			Role:        "program-coordinator",
+			TrustLabels: []string{"trusted", "read-only", "lore-writer"},
+			Capabilities: []Capability{
+				{ID: "program-plan-of-record", Name: "Program Plan of Record", Description: "Owns the plan of record across projects: scope, lane assignment, dependencies and order of work.", Triggers: Triggers{}},
+				{ID: "program-deviation-queue", Name: "Program Deviation Queue", Description: "Judges each lane proposal as on-plan or a deviation, and routes deviations to the operator rather than ruling on them.", Triggers: Triggers{Intents: []string{"escalation"}}},
+				{ID: "program-order-check", Name: "Program Order Check", Description: "Checks each lane's next item against dependencies and plan order so the order of work between project lanes stays logical.", Triggers: Triggers{}},
+				{ID: "program-lane-handoff", Name: "Program Lane Handoff", Description: "Decides at each lane boundary whether the lane continues in a fresh session or resumes.", Triggers: Triggers{}},
+			},
 		},
 		{
 			Name:        "test-agent",

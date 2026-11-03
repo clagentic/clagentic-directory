@@ -22,6 +22,14 @@ const (
 	ValidateOpen
 )
 
+// String names the mode for logs.
+func (m ValidationMode) String() string {
+	if m == ValidateOpen {
+		return "ValidateOpen"
+	}
+	return "ValidateStrict"
+}
+
 // vocabulary holds the closed sets of valid values for schema_version: 2 entries.
 // It is immutable after construction — all exported query methods are safe for
 // concurrent use without locking.

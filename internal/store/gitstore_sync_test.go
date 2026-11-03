@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,7 +85,7 @@ func installGitRecorder(t *testing.T) gitRecorder {
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + filepath.Join(dir, "log") + "\n" +
-		"[ -e " + filepath.Join(dir, "hang") + " ] && exec sleep 60\n" +
+		"[ -e " + filepath.Join(dir, "hang") + " ] && { : > " + filepath.Join(dir, "started") + "; exec sleep 60; }\n" +
 		"for a in \"$@\"; do\n" +
 		"  if [ \"$a\" = clone ] && [ -e " + filepath.Join(dir, "failclone") + " ]; then echo boom >&2; exit 1; fi\n" +
 		"done\n" +
@@ -223,7 +224,7 @@ func plantAttack(t *testing.T, repo, bare string) []string {
 		paths = append(paths, m)
 		return s
 	}
-	cfg := "[url \"ext::sh -c 'touch " + script("ext") + "'\"]\n\tinsteadOf = file://" + bare + "\n" +
+	cfg := "[url \"ext::sh -c '" + script("ext") + "'\"]\n\tinsteadOf = file://" + bare + "\n" +
 		"[protocol]\n\tallow = always\n" +
 		"[core]\n\tfsmonitor = " + script("fsm") + "\n\tgitProxy = " + script("proxy") + "\n\tsshCommand = " + script("ssh") + "\n" +
 		"\thooksPath = " + filepath.Join(repo, ".git", "hooks") + "\n" +
@@ -269,12 +270,50 @@ func plantAttack(t *testing.T, repo, bare string) []string {
 	return paths
 }
 
-func assertNoMarkers(t *testing.T, markers []string) {
-	t.Helper()
+func ranMarkers(markers []string) []string {
+	var ran []string
 	for _, m := range markers {
 		if _, err := os.Stat(m); err == nil {
-			t.Fatalf("planted command ran: %s", filepath.Base(m))
+			ran = append(ran, m)
 		}
+	}
+	return ran
+}
+
+func assertNoMarkers(t *testing.T, markers []string) {
+	t.Helper()
+	if ran := ranMarkers(markers); len(ran) > 0 {
+		t.Fatalf("planted command ran: %s", filepath.Base(ran[0]))
+	}
+}
+
+// TestPlantedExtVectorTripsMarkerAssertion proves the ext:: marker is wired to
+// the command the vector runs: invoking host git directly inside a planted
+// directory executes it, and assertNoMarkers must then fail.
+func TestPlantedExtVectorTripsMarkerAssertion(t *testing.T) {
+	bare, _ := newOrigin(t)
+	repo := t.TempDir()
+	runHostGit(t, repo, "init", "--quiet")
+	markers := plantAttack(t, repo, bare)
+	if err := os.Remove(filepath.Join(repo, ".git", "commondir")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exit status is irrelevant: the planted command only has to start.
+	// The marker is touched as the command starts; the ext:: helper then stalls
+	// on its pipe, so cut it off quickly.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(ctx, "git", "-C", repo, "ls-remote", "file://"+bare).Run()
+
+	var ranExt bool
+	for _, m := range ranMarkers(markers) {
+		if filepath.Base(m) == "ext-ran" {
+			ranExt = true
+		}
+	}
+	if !ranExt {
+		t.Fatalf("forced ext:: vector did not trip the marker check (ran: %v)", ranMarkers(markers))
 	}
 }
 
@@ -599,7 +638,17 @@ func TestGitStoreCloseCancelsInFlightGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec.set(t, "hang")
-	time.Sleep(200 * time.Millisecond) // let the poll loop enter the hung git call
+	started := filepath.Join(rec.dir, "started")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("poll loop never entered the hung git call")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 
 	closed := make(chan struct{})
 	go func() { _ = gs.Close(); close(closed) }()

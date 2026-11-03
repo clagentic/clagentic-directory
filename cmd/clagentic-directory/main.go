@@ -16,6 +16,7 @@ import (
 	"github.com/clagentic/clagentic-directory/internal/api"
 	"github.com/clagentic/clagentic-directory/internal/selfbuild"
 	"github.com/clagentic/clagentic-directory/internal/store"
+	"github.com/clagentic/clagentic-directory/internal/update"
 )
 
 // buildRevision is the source commit the binary was built from, injected with
@@ -72,13 +73,37 @@ func loadConfig(path string) (directoryConfig, error) {
 	return cfg, nil
 }
 
+// fileExists reports whether path can be stat-ed.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// defaultInspectConfigPath resolves the config file used when --config is
+// omitted: <config root>/clagentic/directory/directory.yaml. The older
+// <config root>/clagentic/directory.yaml is never read; when only it exists the
+// operator gets an error naming both paths, so a moved default cannot silently
+// drop their settings (loadConfig treats a missing file as no config).
+func defaultInspectConfigPath(getenv func(string) string, exists func(string) bool) (string, error) {
+	root, err := update.ConfigRoot(getenv)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(root, "clagentic", "directory", "directory.yaml")
+	legacy := filepath.Join(root, "clagentic", "directory.yaml")
+	if !exists(path) && exists(legacy) {
+		return "", fmt.Errorf("config file found at legacy path %s but the default is now %s; move the file to the new path (or pass --config %s)", legacy, path, legacy)
+	}
+	return path, nil
+}
+
 // runInspect implements the 'inspect' subcommand: one-shot MCP introspection
 // that writes a proposed_changes/ file without starting the HTTP service.
 func runInspect(args []string) int {
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
 	agentName := fs.String("agent", "", "agent name (required)")
 	mcpURL := fs.String("mcp-url", "", "MCP server endpoint to introspect (required)")
-	configPath := fs.String("config", "", "path to clagentic-directory config (default: ~/.config/clagentic/directory.yaml)")
+	configPath := fs.String("config", "", "path to clagentic-directory config (default: <user config dir>/clagentic/directory/directory.yaml, i.e. $XDG_CONFIG_HOME or $HOME/.config)")
 	outputDir := fs.String("output-dir", "", "proposed_changes root (default: from config, or ./proposed_changes)")
 
 	if err := fs.Parse(args); err != nil {
@@ -101,12 +126,11 @@ func runInspect(args []string) int {
 	// Resolve config path.
 	cfgPath := *configPath
 	if cfgPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "inspect: cannot resolve home dir: %v\n", err)
+		var err error
+		if cfgPath, err = defaultInspectConfigPath(os.Getenv, fileExists); err != nil {
+			fmt.Fprintf(os.Stderr, "inspect: %v\n", err)
 			return 1
 		}
-		cfgPath = filepath.Join(home, ".config", "clagentic", "directory.yaml")
 	}
 
 	// Resolve output-dir: flag > config > default.

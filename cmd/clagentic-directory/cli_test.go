@@ -217,3 +217,121 @@ func TestRevisionFromFallsBackToBuildInfo(t *testing.T) {
 		t.Fatalf("no buildinfo = %q", got)
 	}
 }
+
+func envMap(m map[string]string) func(string) string {
+	return func(k string) string { return m[k] }
+}
+
+func TestDefaultInspectConfigPath(t *testing.T) {
+	none := func(string) bool { return false }
+	cases := []struct {
+		name    string
+		env     map[string]string
+		want    string
+		wantErr bool
+	}{
+		{"XDG set", map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"}, "/x/clagentic/directory/directory.yaml", false},
+		{"HOME only", map[string]string{"HOME": "/h"}, "/h/.config/clagentic/directory/directory.yaml", false},
+		{"neither", map[string]string{}, "", true},
+		{"relative XDG", map[string]string{"XDG_CONFIG_HOME": "rel"}, "", true},
+	}
+	for _, c := range cases {
+		got, err := defaultInspectConfigPath(envMap(c.env), none)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Fatalf("%s: got %q, %v", c.name, got, err)
+		}
+	}
+
+	env := envMap(map[string]string{"XDG_CONFIG_HOME": "/x"})
+	newP, oldP := "/x/clagentic/directory/directory.yaml", "/x/clagentic/directory.yaml"
+	only := func(paths ...string) func(string) bool {
+		return func(p string) bool {
+			for _, q := range paths {
+				if p == q {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	if _, err := defaultInspectConfigPath(env, only(oldP)); err == nil || !strings.Contains(err.Error(), newP) || !strings.Contains(err.Error(), oldP) {
+		t.Fatalf("legacy only: err=%v, want it to name both paths", err)
+	}
+	if got, err := defaultInspectConfigPath(env, only(oldP, newP)); err != nil || got != newP {
+		t.Fatalf("both present: got %q, %v", got, err)
+	}
+	if got, err := defaultInspectConfigPath(env, only(newP)); err != nil || got != newP {
+		t.Fatalf("new only: got %q, %v", got, err)
+	}
+}
+
+func TestInspectDefaultConfigFlow(t *testing.T) {
+	srv := startCLIMockMCPServer(t)
+	defer srv.Close()
+	setup := func(t *testing.T) (root, work string) {
+		root, work = t.TempDir(), t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", root)
+		t.Setenv("HOME", t.TempDir())
+		orig, _ := os.Getwd()
+		if err := os.Chdir(work); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chdir(orig) }) //nolint:errcheck
+		return root, work
+	}
+	write := func(t *testing.T, path, baseDir string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("self_build:\n  base_dir: "+baseDir+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{"--agent", "a", "--mcp-url", srv.URL}
+
+	t.Run("legacy only exits 1", func(t *testing.T) {
+		root, work := setup(t)
+		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		if code := runInspect(args); code != 1 {
+			t.Fatalf("code=%d want 1", code)
+		}
+		if _, err := os.Stat(filepath.Join(work, "legacy")); err == nil {
+			t.Fatal("legacy file must not be read")
+		}
+	})
+	t.Run("both present reads new", func(t *testing.T) {
+		root, work := setup(t)
+		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		write(t, filepath.Join(root, "clagentic", "directory", "directory.yaml"), filepath.Join(work, "fresh"))
+		if code := runInspect(args); code != 0 {
+			t.Fatalf("code=%d want 0", code)
+		}
+		if _, err := os.Stat(filepath.Join(work, "fresh", "proposed_changes")); err != nil {
+			t.Fatalf("new config not used: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(work, "legacy")); err == nil {
+			t.Fatal("legacy file must not be read")
+		}
+	})
+	t.Run("neither present uses defaults", func(t *testing.T) {
+		_, work := setup(t)
+		if code := runInspect(args); code != 0 {
+			t.Fatalf("code=%d want 0", code)
+		}
+		if _, err := os.Stat(filepath.Join(work, "proposed_changes")); err != nil {
+			t.Fatalf("default output dir missing: %v", err)
+		}
+	})
+	t.Run("explicit config ignores legacy check", func(t *testing.T) {
+		root, work := setup(t)
+		write(t, filepath.Join(root, "clagentic", "directory.yaml"), filepath.Join(work, "legacy"))
+		explicit := filepath.Join(work, "explicit.yaml")
+		write(t, explicit, filepath.Join(work, "chosen"))
+		if code := runInspect(append([]string{"--config", explicit}, args...)); code != 0 {
+			t.Fatalf("code=%d want 0", code)
+		}
+		if _, err := os.Stat(filepath.Join(work, "chosen", "proposed_changes")); err != nil {
+			t.Fatalf("explicit config not used: %v", err)
+		}
+	})
+}

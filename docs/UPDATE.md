@@ -18,22 +18,28 @@ In order:
 1. Validate the whole values file and check privilege. Nothing is written
    before both pass.
 2. Export the reviewed commit (see Binary currency) into a private temp
-   directory and build it into a staged file beside `binary.install_path`
-   (`<install_path>.update-new`). A fetch, ref or build failure leaves the
-   host untouched. The built commit is printed as `source: built commit <sha>`.
+   directory. When the installed binary is already the build of that commit,
+   skip the build. Otherwise build into a staged file beside
+   `binary.install_path` (`<install_path>.update-new`). A fetch, ref or build
+   failure leaves the host untouched. The commit is printed as
+   `source: built commit <sha>`.
 3. Render the unit. If it differs from the installed one, write it through a
    temp file and rename, then run `systemctl daemon-reload`.
-4. If the built binary's SHA-256 differs from the installed one, rename the
-   staged file over `binary.install_path` (atomic; safe while the daemon runs).
+4. If a build ran and its SHA-256 differs from the installed binary's, rename
+   the staged file over `binary.install_path` (atomic; safe while the daemon
+   runs), then write the install record (see Binary currency).
 5. For each unit in `supersedes`: stop it if active, disable it if enabled.
 6. Enable the unit if it is not enabled.
 7. Restart the unit if the unit file or binary changed, or if it is not
    running (a restart starts it).
 8. Poll `/readyz` until HTTP 200 or `readyz.timeout`.
 
-A converged host is a no-op: nothing is written, no `systemctl` command that
-changes state runs, and the second run of any change prints
-`converged: no changes`. The staged build file is always removed.
+The service restarts only on change: a new unit file, a new binary, or a unit
+that is not running. A converged host is a no-op: nothing is built or written,
+no `systemctl` command that changes state runs, and the second run of any
+change prints `converged: no changes`. A changed unit with the same commit
+rewrites the unit and restarts without rebuilding. The staged build file is
+always removed.
 
 Update does not roll back. If a step fails it exits non-zero and prints what
 had already changed; fix the cause and run it again.
@@ -52,8 +58,44 @@ files a builder left there cannot reach the installed binary.
    when unset, fetch the remote's default branch (`HEAD`, resolved by the
    remote, not assumed to be `main`).
 3. Export that exact commit into a private temporary directory and run
-   `go build -C <export> -o <staged> -- <binary.package>` there. The directory is
-   removed afterwards, success or not.
+   `go build -C <export> -trimpath -ldflags "-X main.buildRevision=<commit>" -o <staged> -- <binary.package>`
+   there. The directory is removed afterwards, success or not.
+
+### What is compared
+
+Builds are compared on the resolved source commit, not on binary bytes. An
+export carries no VCS metadata and sits at a fresh temporary path, and without
+`-trimpath` that path is embedded in the binary and its build id, so two builds
+of one commit differ byte for byte. `-trimpath` now makes them identical, but
+currency does not depend on that.
+
+After installing, update writes `<install_path>.source` (root, mode 0644) with
+the commit, the Go package and the SHA-256 of the installed binary. On the next
+run the binary counts as current when all of these hold:
+
+- the freshly fetched `source_ref` resolves to the recorded commit;
+- `binary.package` equals the recorded package;
+- the installed file's SHA-256 equals the recorded digest.
+
+The commit always comes from the fresh fetch, never from the record, so a
+tampered record can force a rebuild but cannot make update skip one for a
+different commit. A binary replaced behind update's back fails the digest check
+and is rebuilt. Anything able to write the install directory can replace the
+binary and the record together, so keep `install_path`'s directory root-owned.
+A host with no record (first run after upgrading to this version) is rebuilt
+once; the service restarts only if the rebuilt bytes differ from the installed
+ones, and the record is written either way.
+
+The unit file is compared by its rendered bytes, as before.
+
+### Revision stamp
+
+Every build sets `main.buildRevision` to the commit it was built from:
+`update` (with `source_url` or `source_dir`; both build an exported commit, so
+the stamp is never dirty) and `make build` (the commit of the working tree,
+with a `-dirty` suffix when tracked files have uncommitted changes). Read it
+with `clagentic-directory --version`; the daemon also logs it at start as
+`revision=<sha>`.
 
 ### Fetch URL trust
 

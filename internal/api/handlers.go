@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -105,6 +106,20 @@ func (h *Handler) getAgent(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// Bound every param before any store lookup so Tier 4 never scores
+	// pathological input. Over-limit input is rejected, not truncated.
+	for _, param := range []string{"intent", "conversation_kind", "after_agent"} {
+		if err := store.ValidateFindParam(param, q.Get(param)); err != nil {
+			var qe *store.QueryLimitError
+			body := map[string]any{"error": err.Error(), "param": param}
+			if errors.As(err, &qe) {
+				body["limit"] = qe.Limit
+				body["unit"] = qe.Unit
+			}
+			writeJSON(w, http.StatusBadRequest, body)
+			return
+		}
+	}
 	var agents []store.Agent
 	switch {
 	case q.Get("intent") != "":

@@ -48,6 +48,8 @@ Use `--registry-source git --registry-git-url <url>` to activate.
 | GET | `/readyz` | 200 if agents loaded, 503 if none |
 | GET | `/.well-known/agent-card.json/{name}` | A2A-compatible agent card |
 
+`/v1/find` bounds each of `intent`, `conversation_kind` and `after_agent` to 256 bytes and 32 post-tokenization terms (`store.MaxFindQueryBytes`, `store.MaxFindQueryTerms`; derivation in `internal/store/querylimits.go`). Over-limit input is rejected before any lookup with HTTP 400 and a JSON body `{"error": ..., "param": ..., "limit": ..., "unit": "bytes"|"terms"}`; it is never truncated.
+
 All responses are `application/json`. No authentication at the API layer in the current release (see `docs/SECURITY.md`).
 
 ## Go client

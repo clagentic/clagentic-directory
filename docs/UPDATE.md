@@ -150,11 +150,11 @@ Each key is the daemon flag of the same name with `-` for `_`.
 |---|---|---|
 | `registry_source` | `--registry-source` | Required: `file` or `git`. |
 | `registry_dir` | `--registry-dir` | File mode only; required there. |
-| `vocab_file` | `--vocab-file` | File mode only. |
+| `vocab_file` | `--vocab-file` | File mode only. The daemon refuses to start if `--vocab-file` is given with `--registry-source=git`. |
 | `registry_git_url` | `--registry-git-url` | Git mode only; required there. |
 | `registry_git_ref` | `--registry-git-ref` | Git mode only. |
 | `registry_git_subpath` | `--registry-git-subpath` | Git mode only; relative to the repo. |
-| `registry_git_vocab` | `--registry-git-vocab` | Git mode only; relative to the repo. |
+| `registry_git_vocab` | `--registry-git-vocab` | Git mode only; relative to the repo. Loaded from each synced clone and enforced strictly; a missing or invalid file fails the sync. The daemon logs the vocabulary path, snapshot SHA and `validation_mode` on every load, and warns `ValidateOpen (UNSAFE)` when it is unset. |
 | `registry_git_poll` | `--registry-git-poll` | Git mode only. |
 | `registry_cache_dir` | `--registry-cache-dir` | Git mode only. The daemon keeps its own clone here and polls origin. |
 | `registry_secret_keyfile` | `--registry-secret-keyfile` | Git mode only. |

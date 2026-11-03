@@ -148,24 +148,25 @@ func resolveGitVocabPath(repoDir, relPath string) (string, error) {
 // directory the daemon just cloned into. It touches nothing served.
 func (g *GitStore) buildSnapshot(dir string) (snapshot, error) {
 	var vocab *vocabulary
+	mode := ValidateOpen
 	if g.vocabPath == "" {
-		v, _, err := resolveVocabulary("", g.ext)
+		v, m, err := resolveVocabulary("", g.ext)
 		if err != nil {
 			return snapshot{}, err
 		}
-		vocab = v
+		vocab, mode = v, m
 	} else {
 		absPath, err := resolveGitVocabPath(dir, g.vocabPath)
 		if err != nil {
 			return snapshot{}, err
 		}
-		v, _, err := resolveVocabulary(absPath, g.ext)
+		v, m, err := resolveVocabulary(absPath, g.ext)
 		if err != nil {
 			slog.Error("git sync: failed to load vocabulary; keeping old snapshot",
 				"vocab_path", g.vocabPath, "err", err)
 			return snapshot{}, err
 		}
-		vocab = v
+		vocab, mode = v, m
 	}
 
 	regDir := dir
@@ -183,7 +184,7 @@ func (g *GitStore) buildSnapshot(dir string) (snapshot, error) {
 		}
 		return snapshot{}, err
 	}
-	return snapshot{agents: entries, vocab: vocab}, nil
+	return snapshot{agents: entries, vocab: vocab, mode: mode}, nil
 }
 
 func (g *GitStore) pollLoop() {
@@ -279,7 +280,29 @@ func (g *GitStore) syncNow() error {
 	if old != "" {
 		g.removeDir(old)
 	}
+	g.logLoaded(sha, snap)
 	return nil
+}
+
+// logLoaded states which vocabulary the served snapshot was validated against
+// and the effective mode, so an operator can tell strict from open from the
+// journal alone. ValidateOpen is a warning because it serves unvalidated cards.
+func (g *GitStore) logLoaded(sha string, snap snapshot) {
+	vocabPath := g.vocabPath
+	if vocabPath == "" {
+		vocabPath = "(none: --vocabulary-extensions only)"
+	}
+	attrs := []any{
+		"sha", sha,
+		"vocab_path", vocabPath,
+		"validation_mode", snap.mode.String(),
+		"agents", len(snap.agents),
+	}
+	if snap.mode == ValidateOpen {
+		slog.Warn("git registry loaded in ValidateOpen mode (UNSAFE): vocabulary values are not validated; set --registry-git-vocab", attrs...)
+		return
+	}
+	slog.Info("git registry loaded; vocabulary loaded", attrs...)
 }
 
 // Reload syncs with origin now. It is safe to call from multiple goroutines.

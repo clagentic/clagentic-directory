@@ -18,6 +18,7 @@ import (
 type snapshot struct {
 	agents map[string]Agent
 	vocab  *vocabulary // nil means ValidateOpen
+	mode   ValidationMode
 }
 
 // FileStore implements Store by reading YAML agent entries from a directory.

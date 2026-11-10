@@ -3,11 +3,11 @@
 Two schema versions are supported. New entries must use `schema_version: 2`.
 Schema v1 is accepted with a deprecation warning at load time.
 
-- `schemas/agent-entry.v1.yaml` — v1, lenient (no vocabulary enum)
-- `schemas/agent-entry.v2.yaml` — v2, strict (closed vocabulary enum)
+- `schemas/agent-entry.v1.yaml` — v1, lenient (no vocabulary validation)
+- `schemas/agent-entry.v2.yaml` — v2, strict (vocabulary validated at load time against the deployment's vocabulary file)
 
-See [VOCABULARY.md](VOCABULARY.md) for the canonical list of valid intents,
-conversation_kinds, trust_labels, and return formats.
+See [VOCABULARY.md](VOCABULARY.md) for how the deployment's vocabulary file works and the
+semantics of the starter vocabulary's intents, conversation_kinds, trust_labels, and return formats.
 
 ---
 
@@ -16,11 +16,11 @@ conversation_kinds, trust_labels, and return formats.
 | Aspect | v1 | v2 |
 |--------|----|----|
 | `schema_version` | `const: 1` | `const: 2` |
-| `capabilities[].triggers.intents` | free-form strings | enum (see VOCABULARY.md) |
-| `capabilities[].triggers.conversation_kinds` | free-form strings | enum (see VOCABULARY.md) |
-| `trust_labels` | free-form strings | enum (see VOCABULARY.md) |
+| `capabilities[].triggers.intents` | free-form strings | strings validated against the deployment vocabulary file (see VOCABULARY.md) |
+| `capabilities[].triggers.conversation_kinds` | free-form strings | strings validated against the deployment vocabulary file |
+| `trust_labels` | free-form strings | strings validated against the deployment vocabulary file |
 | `capabilities[].returns` | optional | **required** |
-| `capabilities[].returns.format` | free-form string | enum (see VOCABULARY.md) |
+| `capabilities[].returns.format` | free-form string | string validated against the deployment vocabulary file |
 | `additionalProperties` | `true` (lenient) | `false` (strict) |
 | Loader behavior | loads silently | loads and validates vocabulary |
 
@@ -33,7 +33,7 @@ conversation_kinds, trust_labels, and return formats.
 | `schema_version` | yes | integer (const: 2) | Schema version. Must be `2` for new entries. |
 | `identity` | yes | object | Agent identity block. |
 | `capabilities` | yes | array | List of capability objects. |
-| `trust_labels` | no | array of enum strings | Deployment trust tags. Values must be from VOCABULARY.md. |
+| `trust_labels` | no | array of strings | Deployment trust tags. Validated at load time against the deployment's vocabulary file. |
 
 ---
 
@@ -65,8 +65,8 @@ Each entry in the array describes one thing the agent can do.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `intents` | array of enum strings | Intent labels that invoke this capability. Used by `GET /v1/find?intent=`. Must be from vocabulary. |
-| `conversation_kinds` | array of enum strings | Conversation kind labels. Used by `GET /v1/find?conversation_kind=`. Must be from vocabulary. |
+| `intents` | array of strings | Intent labels that invoke this capability. Used by `GET /v1/find?intent=`. Validated at load time against the deployment's vocabulary file. |
+| `conversation_kinds` | array of strings | Conversation kind labels. Used by `GET /v1/find?conversation_kind=`. Validated at load time against the deployment's vocabulary file. |
 | `after_roles` | array of strings | This capability runs after agents fulfilling these roles (free-form). |
 | `after_agents` | array of strings | This capability runs after the named agents. Used by `GET /v1/find?after_agent=`. |
 
@@ -79,13 +79,14 @@ Required in v2.
 | Field | Type | Description |
 |-------|------|-------------|
 | `verdict_field` | string | The key in the agent's output envelope that carries the primary result. |
-| `format` | enum string | Output format hint. Must be from vocabulary (`json`, `structured`, `structured-markdown`, `url`, `text`). |
+| `format` | string | Output format hint. Validated at load time against the deployment's vocabulary file (the starter file defines `json`, `structured`, `structured-markdown`, `url`, `text`, among others). |
 
 ---
 
 ## `trust_labels`
 
-Enum-constrained in v2. Values must be from [VOCABULARY.md](VOCABULARY.md).
+In v2, values are validated at load time against the deployment's vocabulary file
+(see [VOCABULARY.md](VOCABULARY.md)).
 
 ---
 

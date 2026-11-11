@@ -1,9 +1,14 @@
 # Agent Entry Vocabulary
 
-Canonical vocabulary for `schema_version: 2` agent entries in the clagentic-directory registry.
+Vocabulary for `schema_version: 2` agent entries in the clagentic-directory registry.
 
-All values used in `capabilities[].triggers.intents`, `capabilities[].triggers.conversation_kinds`,
-`trust_labels`, and `capabilities[].returns.format` must come from this list.
+The authority for valid values is the deployment's own vocabulary file: the file passed with
+`--registry-git-vocab` (git mode) or `--vocab-file`, kept in the deployment's own config repo.
+Values used in `capabilities[].triggers.intents`, `capabilities[].triggers.conversation_kinds`,
+`trust_labels`, and `capabilities[].returns.format` are validated against that file at load time.
+
+The tables below document the tokens of the starter file `examples/vocabulary.v1.yaml`. They
+describe semantics; they are not an authority.
 
 ## Using a vocabulary file
 
@@ -18,29 +23,31 @@ deployments and should not be used in production.
 In git mode (`--registry-source=git`) use `--registry-git-vocab <path-in-repo>` instead;
 `--vocab-file` is rejected there. The file is read from each synced clone.
 
-See `examples/vocabulary.v1.yaml` for a ready-to-use canonical vocabulary file.
+`examples/vocabulary.v1.yaml` is a starter: copy it once into your deployment's config repo,
+then the copy is owned by the deployment. `schemas/vocabulary.v1.yaml` describes only the
+file's shape and lists no tokens.
 
 ## Adding a new vocabulary item
 
-1. Add it here with semantics (this document).
-2. Add it to `examples/vocabulary.v1.yaml` (the canonical vocab file).
-3. Add it to `schemas/vocabulary.v1.yaml` (`x-canonical-values` list + `definitions` block).
-4. Add it to the enum in `schemas/agent-entry.v2.yaml`.
-5. Use it in agent YAML files.
+1. Add it to the deployment's own vocabulary file.
+2. Use it in agent YAML files.
+
+No other file in this repo needs to change.
 
 ## Platform-specific values
 
-Platform-specific values (agents unique to your deployment) should be added directly to
-your vocabulary file (`--vocab-file`). Do not add deployment-specific values to this document
-or the canonical `examples/vocabulary.v1.yaml`.
+Platform-specific values (agents unique to your deployment) go in your deployment's
+vocabulary file only. Do not add deployment-specific values to this document or to the
+starter `examples/vocabulary.v1.yaml`.
 
 The `--vocabulary-extensions` flag is deprecated. Migrate to `--vocab-file` instead.
 See `examples/vocabulary-extensions.yaml` for the old format reference.
 
 ## Growth policy
 
-Vocabulary grows monotonically. Values are never removed from the enum once shipped —
-agents that used a removed value would silently break at `FindByCapability()` call sites.
+A deployment's vocabulary should grow monotonically. Avoid removing a value from the
+deployment's vocabulary file while agents still use it — those agents would fail to load
+under strict validation and silently break at `FindByCapability()` call sites.
 
 ---
 
